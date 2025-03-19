@@ -18,30 +18,72 @@
  * - Updates UE data based on TB size.
  * - Repeats the process for multiple iterations.
  */
+
 #include "define.h"
 
-
 void init_data(UEData *ue, int id);
-void update_data(UEData* ue, int TBSize);
+void update_data(UEData* ue, int TBSize, int tti);
 
 int main() {
+    int check_value;
+    int sock;
+    struct sockaddr_in server_addr;
+    socklen_t addr_len = sizeof(server_addr);
+
+    sock = socket(AF_INET, SOCK_DGRAM, 0);
+    if (sock == -1) {
+        LOG_ERROR("Cannot create socket");
+        return 1;
+    }
+
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_port = htons(SERVER_PORT);
+    inet_pton(AF_INET, SERVER_IP, &server_addr.sin_addr);
+
+    // srand(time(NULL));
+
     UEData *ue = (UEData*) malloc(NUM_UE*sizeof(UEData));
     if (ue == NULL) {
         LOG_ERROR("Memory allocation failed\n");
-        return -1;
+        return 1;
     }
-    
+
+    SchedulerResponse *response = (SchedulerResponse*) malloc(NUM_UE*sizeof(SchedulerResponse));
+    if (response == NULL) {
+        LOG_ERROR("Memory allocation failed\n");
+        return 1;
+    }
+
     for (int i = 0; i < NUM_UE; i++) {
-        init_data(&ue[i], i);
+        init_data(&ue[i],i+1);
     }
 
-    // Send data to MAC Scheduler
+    for (int tti = 1; tti <= NUM_TTI; tti++) {
+        check_value = sendto(sock, ue, sizeof(UEData) * NUM_UE, 0, (struct sockaddr *)&server_addr, addr_len);
+        if (check_value < 0) {
+            LOG_ERROR("Cannot sendto Scheduler");
+            close(sock);
+            return 1;
+        }
+        else printf("UE sent: TTI=%d \n",tti);
 
-    // Receive data from MAC Scheduler
-    // Update data
+        check_value = recvfrom(sock, response, NUM_UE*sizeof(SchedulerResponse), 0, (struct sockaddr *)&server_addr, &addr_len);
+        if (check_value < 0) {
+            LOG_ERROR("Cannot recvfrom Scheduler");
+            close(sock);
+            return 1;
+        }
+        for (int i = 0; i < NUM_UE; i++) {
+            update_data(&ue[i], response[i].TBSize, tti);
+        }
 
+        // usleep(1000); // Giả lập thời gian mỗi TTI = 1ms
+    }
+
+    close(sock);
     return 0;
 }
+
 
 void init_data(UEData *ue, int id){
     ue->id = id;
@@ -58,9 +100,11 @@ void init_data(UEData *ue, int id){
     else{
         printf("Invalid UE ID\n");
     }
+    ue->bsr = rand()%10000;
+    ue->tti = 0;
 }
 
-void update_data(UEData* ue, int TBSize){
+void update_data(UEData* ue, int TBSize, int tti){
     ue->bsr = (ue->bsr > TBSize ? ue->bsr - TBSize : 0);
     ue->mcs = ue->mcs + rand()%3 - 1;
     if (ue->mcs < 0) {
@@ -68,4 +112,5 @@ void update_data(UEData* ue, int TBSize){
     } else if (ue->mcs > 27) {
         ue->mcs = 27;
     }
+    ue->tti = tti;
 }

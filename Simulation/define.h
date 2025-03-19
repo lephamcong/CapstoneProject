@@ -13,6 +13,7 @@
 
 #define LOG_ERROR(msg) fprintf(stderr, "[%s:%d] %s: errno=%d (%s)\n", __FILE__, __LINE__, msg, errno, strerror(errno))
 
+//Define arguments for UDP socket
 #define UE_PORT 5501
 #define SERVER_PORT 5500
 #define SERVER_IP "127.0.0.1"
@@ -21,10 +22,10 @@
 #define NUM_UE 12
 #define NUM_RB 100
 #define MAX_MCS_INDEX 28
-#define TBSArray[MAX_MCS_INDEX][NUM_RB]
 #define NUM_LAYER 1
 #define MAX_UE_PER_TTI 4
 #define SUBFRAME_DURATION 1
+#define NUM_TTI 10
 
 
 // Define some functions
@@ -43,4 +44,9 @@ typedef struct UEData {
     int id;
     int mcs;
     int bsr;
+    int tti;
 } UEData;
+
+typedef struct {
+    int TBSize;
+} SchedulerResponse;
