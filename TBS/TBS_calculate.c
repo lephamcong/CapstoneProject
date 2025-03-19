@@ -1,7 +1,44 @@
+/**
+ * @file TBS_calculate.c
+ * @brief This file contains functions to read MCS Index table from a CSV file, calculate Transport Block Size (TBS) based on given parameters, and write the TBS array to a CSV file.
+ * 
+ * The main functionalities include:
+ * - Reading MCS Index table from a CSV file.
+ * - Calculating TBS for different MCS Index and Resource Blocks (RB).
+ * - Writing the calculated TBS array to a CSV file.
+ * 
+ * The file defines several macros and constants used in the calculations and file operations.
+ * 
+ * Macros:
+ * - max(a, b): Returns the maximum of two values.
+ * - min(a, b): Returns the minimum of two values.
+ * - LOG_ERROR(msg): Logs an error message with file name, line number, and errno.
+ * 
+ * Constants:
+ * - MAX_TABLE: Maximum size of the table.
+ * - MAX_LINE: Maximum length of a line in the file.
+ * - MAX_MCSIndex: Maximum MCS Index.
+ * - MAX_RB: Maximum Resource Blocks.
+ * - NUM_MACTable: Number of MCS tables.
+ * - NUM_LAYER: Number of layers.
+ * 
+ * Functions:
+ * - void read_file(char* filename, float matrix[MAX_TABLE][MAX_TABLE], int* rows, int* cols): Reads a CSV file and stores the data in a matrix.
+ * - void write_file(const char *filename, int array[28][100]): Writes the TBS array to a CSV file.
+ * - int calc_TBS(int Q_m, int R_m, int Nsh_symb, int Nprb_dmrs, int Nprb_oh, int Nprb, int v): Calculates the Transport Block Size (TBS) based on given parameters.
+ * - int main(): Main function that reads the MCS Index table, calculates the TBS array, and writes the TBS array to a CSV file.
+ * 
+ * The main function performs the following steps:
+ * - Reads the MCS Index table from a CSV file.
+ * - Calculates the TBS for different MCS Index and Resource Blocks.
+ * - Writes the calculated TBS array to a CSV file.
+ */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
 #include <string.h>
+#include <errno.h>
 
 #define max(a,b) \
 ({ __typeof__ (a) _a = (a); \
@@ -18,10 +55,9 @@ _a < _b ? _a : _b; })
 #define MAX_TABLE 105
 #define MAX_LINE 100
 
-// Define một số các hằng số
 #define MAX_MCSIndex 28
 #define MAX_RB 100
-#define NUM_MACTable 1 // Bảng MCS số 1 cho PDSCH 
+#define NUM_MACTable 1 
 #define NUM_LAYER 1
 
 void read_file(char* filename, float matrix[MAX_TABLE][MAX_TABLE], int* rows, int* cols){
@@ -31,23 +67,23 @@ void read_file(char* filename, float matrix[MAX_TABLE][MAX_TABLE], int* rows, in
         LOG_ERROR("Cannot open file");
         return;
     }
-    // Đọc số hàng và số cột
+    // read the first line
     char line[MAX_LINE];
     *rows = 0;
     fgets(line, sizeof(line), file);
-    // Đọc dữ liệu số thực vào mảng hai chiều
+    
     while (fgets(line, sizeof(line), file)) {
-        char *token = strtok(line, ","); // Tách từng cột
+        char *token = strtok(line, ","); // split the line by comma (,)
         *cols = 0;
         while (token) {
-            matrix[*rows][*cols] = atof(token); // Chuyển chuỗi thành số thực
-            token = strtok(NULL, ",");  // Đọc tiếp dữ liệu trên cùng dòng
+            matrix[*rows][*cols] = atof(token); // convert string to float
+            token = strtok(NULL, ",");  // get the next token
             (*cols)++;
         }
         (*rows)++;
     }
 
-    fclose(file); // Đóng file sau khi đọc xong
+    fclose(file); // close the file
 }
 
 void write_file(const char *filename, int array[28][100]) {
@@ -57,20 +93,18 @@ void write_file(const char *filename, int array[28][100]) {
         return;
     }
 
-    // Ghi hàng tiêu đề
-    fprintf(file, "MCS/RB"); // Cột đầu tiên
+    fprintf(file, "MCS/RB"); 
     for (int i = 1; i <= MAX_RB; i++) {
-        fprintf(file, ",%d", i); // Ghi chỉ số cột
+        fprintf(file, ",%d", i); 
     }
     fprintf(file, "\n");
 
-    // Ghi từng dòng dữ liệu, thêm chỉ số hàng ở cột đầu tiên
     for (int j = 0; j < MAX_MCSIndex; j++) {
-        fprintf(file, "%d", j); // Ghi chỉ số hàng (Index)
+        fprintf(file, "%d", j); 
         for (int i = 1; i <= MAX_RB; i++) {
-            fprintf(file, ",%d", array[j][i]); // Ghi dữ liệu, cách nhau bằng dấu phẩy
+            fprintf(file, ",%d", array[j][i]); 
         }
-        fprintf(file, "\n"); // Xuống dòng
+        fprintf(file, "\n"); 
     }
 
     fclose(file);
@@ -146,7 +180,6 @@ int main() {
     sprintf(filename, "MCSIndexTable%d.csv", NUM_MACTable);
     read_file(filename, MCSTable, &rows_MCSTable, &cols_MCSTable);
 
-    // In ra bảng MCS Index
     // for (int i = 0; i < rows_MCSTable; i++) {
     //     for (int j = 0; j < cols_MCSTable; j++) {
     //         printf("%.4f ", MCSTable[i][j]);
@@ -154,7 +187,6 @@ int main() {
     //     printf("\n");
     // }
 
-    // Các tham số cần thiết để tính TBS
     int Nsh_symb = 14;
     int Nprb_dmrs = 12*2;
     int Nprb_oh = 0;
