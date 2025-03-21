@@ -24,6 +24,8 @@ int TBSArray[MAX_MCS_INDEX][NUM_RB];
 
 int main() {
     int check_value;
+    char buffer[sizeof(UEData)*NUM_UE + sizeof(TransInfo)];
+
     int sock;
     struct sockaddr_in server_addr, client_addr;
     socklen_t addr_len = sizeof(client_addr);
@@ -39,6 +41,13 @@ int main() {
         LOG_ERROR("Memory allocation failed\n");
         return 1;
     }
+
+    TransInfo *transport_infomation = (TransInfo*) malloc(NUM_UE*sizeof(TransInfo));
+    if (transport_infomation == NULL) {
+        LOG_ERROR("Memory allocation failed\n");
+        return 1;
+    } 
+
     // Tạo socket UDP
     sock = socket(AF_INET, SOCK_DGRAM, 0);
     if (sock == -1) {
@@ -60,13 +69,16 @@ int main() {
     printf("Scheduler is listening on port %d...\n", SERVER_PORT);
 
     while (1) {
-        recvfrom(sock, ue, sizeof(UEData) * NUM_UE, 0, (struct sockaddr *)&client_addr, &addr_len);
+        recvfrom(sock, buffer, sizeof(UEData) * NUM_UE, 0, (struct sockaddr *)&client_addr, &addr_len);
+        memcpy(transport_infomation, buffer, sizeof(TransInfo));
+        memcpy(ue, buffer + sizeof(TransInfo), sizeof(UEData)*NUM_UE);
+
         if (check_value < 0) {
             LOG_ERROR("Cannot recvfrom UE");
         }
 
         for (int i = 0; i < NUM_UE; i++) {
-            printf("Received UE%d: TTI=%d, MCS=%d, BSR=%d\n", ue[i].id, ue[i].tti, ue[i].mcs, ue[i].bsr);
+            printf("Received UE%d: TTI=%d, MCS=%d, BSR=%d\n", ue[i].id, transport_infomation->tti, ue[i].mcs, ue[i].bsr);
         }
         printf("--------------------------\n");
 

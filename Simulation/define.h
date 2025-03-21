@@ -44,9 +44,13 @@ typedef struct UEData {
     int id;
     int mcs;
     int bsr;
-    int tti;
 } UEData;
 
 typedef struct {
     int TBSize;
 } SchedulerResponse;
+
+typedef struct
+{
+    int tti;
+} TransInfo;

@@ -22,10 +22,12 @@
 #include "define.h"
 
 void init_data(UEData *ue, int id);
-void update_data(UEData* ue, int TBSize, int tti);
+void update_data(UEData* ue, int TBSize);
 
 int main() {
     int check_value;
+    char buffer[sizeof(UEData)*NUM_UE + sizeof(TransInfo)];
+
     int sock;
     struct sockaddr_in server_addr;
     socklen_t addr_len = sizeof(server_addr);
@@ -54,12 +56,22 @@ int main() {
         return 1;
     }
 
+    TransInfo *transport_infomation = (TransInfo*) malloc(NUM_UE*sizeof(TransInfo));
+    if (transport_infomation == NULL) {
+        LOG_ERROR("Memory allocation failed\n");
+        return 1;
+    }    
+
     for (int i = 0; i < NUM_UE; i++) {
         init_data(&ue[i],i+1);
     }
 
     for (int tti = 1; tti <= NUM_TTI; tti++) {
-        check_value = sendto(sock, ue, sizeof(UEData) * NUM_UE, 0, (struct sockaddr *)&server_addr, addr_len);
+        transport_infomation->tti = tti;
+        memcpy(buffer, transport_infomation, sizeof(TransInfo));
+        memcpy(buffer + sizeof(TransInfo), ue, sizeof(UEData)*NUM_UE);
+
+        check_value = sendto(sock, buffer, sizeof(UEData) * NUM_UE, 0, (struct sockaddr *)&server_addr, addr_len);
         if (check_value < 0) {
             LOG_ERROR("Cannot sendto Scheduler");
             close(sock);
@@ -74,7 +86,7 @@ int main() {
             return 1;
         }
         for (int i = 0; i < NUM_UE; i++) {
-            update_data(&ue[i], response[i].TBSize, tti);
+            update_data(&ue[i], response[i].TBSize);
         }
 
         // usleep(1000); // Giả lập thời gian mỗi TTI = 1ms
@@ -101,10 +113,9 @@ void init_data(UEData *ue, int id){
         printf("Invalid UE ID\n");
     }
     ue->bsr = rand()%10000;
-    ue->tti = 0;
 }
 
-void update_data(UEData* ue, int TBSize, int tti){
+void update_data(UEData* ue, int TBSize){
     ue->bsr = (ue->bsr > TBSize ? ue->bsr - TBSize : 0);
     ue->mcs = ue->mcs + rand()%3 - 1;
     if (ue->mcs < 0) {
@@ -112,5 +123,4 @@ void update_data(UEData* ue, int TBSize, int tti){
     } else if (ue->mcs > 27) {
         ue->mcs = 27;
     }
-    ue->tti = tti;
 }
