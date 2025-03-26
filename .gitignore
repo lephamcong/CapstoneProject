@@ -1,0 +1,15 @@
+# skip all file
+*
+
+# allow all folder
+!*/
+
+# allow all file with extension
+!*.csv
+!*.c
+!*.pdf
+!*.md
+!*.h
+!*.sh
+!*.gitignore
+!*.txt
