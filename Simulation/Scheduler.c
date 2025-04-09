@@ -1,15 +1,33 @@
+/**
+ * @file Scheduler.c
+ * @brief This file simulate the Scheduler in MAC layer of 5G NR
+ * 
+ * The main functionalities include:
+ * - Scheduling resource (Transport Block Size) (bytes) for each UE
+ * - Receiving and sending data from/to UE module
+ * - Save scheduling data to Storage
+ * 
+ * Functions:
+ * - 
+ * - 
+ * 
+ * The main function performs the following steps: 
+ * - Receive UE data from UE module
+ * - Scheduling resource for each UE
+ * - Response scheduling resource to UE module
+ * - Repeats the process for multiple interations
+ * - Log results to Storage 
+ * */ 
 #include "define.h"
-#include "./roundRobin.c"
-#include "./MaxC_I.c"
-#include "./PF.c"
 
 int TBSArray[MAX_MCS_INDEX][NUM_RB];
 
 int main() {
-    char buffer[sizeof(UEData) * NUM_UE];
+    int check_value;
+    char buffer[sizeof(UEData)*NUM_UE + sizeof(TransInfo)];
 
     int sock;
-    struct sockaddr_un server_addr, client_addr;
+    struct sockaddr_in server_addr, client_addr;
     socklen_t addr_len = sizeof(client_addr);
 
     UEData *ue = (UEData*) malloc(NUM_UE*sizeof(UEData));
@@ -24,69 +42,57 @@ int main() {
         return 1;
     }
 
-    /*create socket*/
-    if ((sock = socket(AF_UNIX, SOCK_STREAM, 0)) == -1) {
+    TransInfo *transport_infomation = (TransInfo*) malloc(NUM_UE*sizeof(TransInfo));
+    if (transport_infomation == NULL) {
+        LOG_ERROR("Memory allocation failed\n");
+        return 1;
+    } 
+
+    // Tạo socket UDP
+    sock = socket(AF_INET, SOCK_DGRAM, 0);
+    if (sock == -1) {
         LOG_ERROR("Cannot create socket");
         return 1;
     }
 
-    /*link socket path to server*/
-    unlink(SCHEDULER);
-    memset(&server_addr, 0, sizeof(server_addr));
-    server_addr.sun_family = AF_UNIX;
-    strcpy(server_addr.sun_path, SCHEDULER);
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_port = htons(SERVER_PORT);
+    server_addr.sin_addr.s_addr = INADDR_ANY;
 
-    
+    // Bind socket vào địa chỉ và cổng
     if (bind(sock, (struct sockaddr *)&server_addr, sizeof(server_addr)) == -1) {
         LOG_ERROR("Bind failed");
         close(sock);
         return 1;
-    } 
-
-    if (listen(sock, 5) == -1) {
-        LOG_ERROR("Listen failed");
-        close(sock);
-        return 1;
     }
 
-    if (accept(sock, (struct sockaddr *)&client_addr, &addr_len) == -1) {
-        LOG_ERROR("Accept failed");
-        close(sock);
-        return 1;
-    } else {
-        printf("Connected to UE Simulation\n");
-    }
-    int TTI = 0;
-    
-    while(TTI<TOTAl_TTI) {
-        if (read(sock, buffer, sizeof(UEData) * NUM_UE) == -1) {
-            LOG_ERROR("Read failed");
-            close(sock);
-            return 1;
-        } else {
-            memcpy(ue, buffer, sizeof(UEData) * NUM_UE);
-            TTI += 1;
+    printf("Scheduler is listening on port %d...\n", SERVER_PORT);
+
+    while (1) {
+        recvfrom(sock, buffer, sizeof(UEData) * NUM_UE, 0, (struct sockaddr *)&client_addr, &addr_len);
+        memcpy(transport_infomation, buffer, sizeof(TransInfo));
+        memcpy(ue, buffer + sizeof(TransInfo), sizeof(UEData)*NUM_UE);
+
+        if (check_value < 0) {
+            LOG_ERROR("Cannot recvfrom UE");
         }
 
         for (int i = 0; i < NUM_UE; i++) {
-            printf("Received UE%d: TTI=%d, MCS=%d, BSR=%d\n", i+1, TTI, ue[i].mcs, ue[i].bsr);
+            printf("Received UE%d: TTI=%d, MCS=%d, BSR=%d\n", ue[i].id, transport_infomation->tti, ue[i].mcs, ue[i].bsr);
         }
         printf("--------------------------\n");
 
+        // Lập lịch (giả lập) dựa trên MCS và BSR
         for (int i = 0; i < NUM_UE; i++) {
             response[i].TBSize = 100;
         }
-        if (write(sock, response, sizeof(SchedulerResponse) * NUM_UE) == -1) {
-            LOG_ERROR("Write failed");
-            close(sock);
-            return 1;
-        } 
 
-
+        sendto(sock, response, NUM_UE*sizeof(SchedulerResponse), 0, (struct sockaddr *)&client_addr, addr_len);
+        if (check_value < 0) {
+            LOG_ERROR("Cannot sendto UE");
+        }
     }
 
     close(sock);
-    unlink(SCHEDULER);
-
     return 0;
 }
