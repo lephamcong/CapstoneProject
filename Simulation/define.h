@@ -12,8 +12,11 @@
 #include <errno.h>
 #include <sys/un.h>
 
-#define SOCKET_PATH "/tmp/ue_controller"
 
+
+#define UE_SIMULATION "ueSimulation.sock"
+#define SCHEDULER "Scheduler.sock"
+#define BUFFER_SIZE 1024
 
 #define LOG_ERROR(msg) fprintf(stderr, "[%s:%d] %s: errno=%d (%s)\n", __FILE__, __LINE__, msg, errno, strerror(errno))
 
@@ -36,7 +39,7 @@
 #define NUM_LAYER 1
 #define MAX_UE_PER_TTI 4
 #define SUBFRAME_DURATION 1
-#define NUM_TTI 10
+#define TOTAl_TTI 10
 
 
 // Define some functions
@@ -52,7 +55,6 @@ _a < _b ? _a : _b; })
 
 // Define Structure for UE Data
 typedef struct UEData {
-    int id;
     int mcs;
     int bsr;
 } UEData;
