@@ -1,62 +1,100 @@
-// ===================== scheduler.c =====================
 #include "define.h"
+#include "algorithm/roundRobin.c"
+#include "algorithm/MaxC_I.c"
+#include "algorithm/PF.c"
 
-uint64_t get_elapsed_ms(uint64_t start) {
+int TBS[MAX_MCS_INDEX][NUM_RB];
+
+int cqi_to_mcs(int cqi) {
     /*
-        Function to calculate elapsed time in milliseconds (ms)
-        since the start time.
+        Function to convert CQI to MCS index.
         
         Parameters:
-            start:  The start time in nanoseconds (ns).
-        Returns:
-            Elapsed time in milliseconds (ms).
-    */
-    struct timespec now;
-    clock_gettime(CLOCK_MONOTONIC, &now);
-    uint64_t now_ns = (uint64_t)now.tv_sec * 1e9 + now.tv_nsec;
-    return (now_ns - start)/1000000;
-    
-}
-
-uint64_t get_current_time_ns() {
-    /*
-        Function to get the current time in nanoseconds (ns).
+            cqi: CQI value.
         
         Returns:
-            Current time in nanoseconds (ns).
+            MCS index corresponding to the given CQI.
     */
-    struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    return (uint64_t)ts.tv_sec * 1e9 + ts.tv_nsec;
+    if (cqi == 1) return 0;
+    else if (cqi == 2) return 2;
+    else if (cqi == 3) return 4;
+    else if (cqi == 4) return 6;
+    else if (cqi == 5) return 8;
+    else if (cqi == 6) return 10;
+    else if (cqi == 7) return 12;
+    else if (cqi == 8) return 14;
+    else if (cqi == 9) return 16;
+    else if (cqi == 10) return 19;
+    else if (cqi == 11) return 21;
+    else if (cqi == 12) return 23;
+    else if (cqi == 13) return 24;
+    else if (cqi == 14) return 25;
+    else if (cqi == 15) return 27;
+    else return -1; // Invalid CQI
 }
 
-uint64_t get_current_time_ms() {
+// Function to load TBS (Transport Block Size) table from CSV file
+void TBS_Table() {
     /*
-        Function to get the current time in milliseconds (ms).
+        Function to load TBS (Transport Block Size) table from CSV file.
         
         Returns:
-            Current time in milliseconds (ms).
+            None
     */
-    struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    return (uint64_t)ts.tv_sec * 1e3 + ts.tv_nsec / 1e6;
-}
-
-void allocate_tb_size_and_test_scheduler(UEData* ue_data, SchedulerResponse* response) {
-    /*
-        Function to allocate TBSize and test the scheduler.
-        
-        Parameters:
-            ue_data:    Pointer to UEData structure containing UE information.
-            response:   Pointer to SchedulerResponse structure for storing the response.
-    */
-    for (int i = 0; i < NUM_UE; i++) {
-        response[i].id = ue_data[i].id;
-        response[i].tb_size = 100;  // Allocate 100 TBSize for each UE
-        printf("[Allocate TBSize & Test Scheduler] UE %d: CQI=%d, BSR=%d, Allocated TBSize=%d\n", 
-               ue_data[i].id, ue_data[i].cqi, ue_data[i].bsr, response[i].tb_size);
+    FILE *file = fopen("./TBSArray.csv", "r");
+    if (file == NULL) {
+        LOG_ERROR("Error opening TBS file");
+        exit(EXIT_FAILURE);
     }
+    // Read the TBS table from the CSV file
+    char line[MAX_LINE_LENGTH];
+    int i = 0;
+
+    fgets(line, sizeof(line), file); // skip the header line
+
+    while (fgets(line, sizeof(line), file) && i < MAX_MCS_INDEX) {
+        char *token = strtok(line, ",");  // skip the first column
+        token = strtok(NULL, ",");
+
+        int j = 0;
+        while (token != NULL && j < NUM_RB) {
+            TBS[i][j] = atoi(token);
+            token = strtok(NULL, ",");
+            j++;
+        }
+
+        if (j != NUM_RB) {
+            fprintf(
+                stderr, 
+                COLOR_YELLOW "[WARN ] [%s:%d] Warning: Row %d has incorrect number of columns" COLOR_RESET "\n", 
+                __FILE__, 
+                __LINE__, 
+                i
+            );
+        }
+
+        i++;
+    }
+
+    if (i != MAX_MCS_INDEX) {
+        fprintf(
+            stderr, 
+            COLOR_YELLOW "[WARN ] [%s:%d] Warning: File has incorrect number of rows" COLOR_RESET "\n", 
+            __FILE__, 
+            __LINE__
+        );
+    } else {
+        LOG_OK("TBS table loaded successfully");
+    }
+
+    fclose(file);
 }
+
+void RoundRobin() {
+
+}
+
+
 int main() {
     // create shared memory
     int shm_sync = shm_open(
@@ -210,14 +248,13 @@ int main() {
     int tti_last = get_elapsed_ms(sync->start_time_ms);
     sem_post(sem_sync);
 
-    printf("[Scheduler] Start sync time: %ld\n", sync->start_time_ms);
+    printf("[Scheduler] Start sync time: %s\n", format_time_str(sync->start_time_ms));  
     for (int i = 0; i < MAX_UE; i++) {
         printf("[Scheduler] UE %d: CQI=%d, BSR=%d\n", ue_data[i].id, ue_data[i].cqi, ue_data[i].bsr);
     }
 
     // Allocate TBSize and test scheduler
     allocate_tb_size_and_test_scheduler(ue, response_data);
-    sleep(1);
     sem_post(sem_scheduler);
 
     uint64_t tti_now = get_elapsed_ms(sync->start_time_ms);

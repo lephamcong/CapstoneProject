@@ -1,44 +1,5 @@
 #include "define.h"
 
-long current_time_ns() {
-    /*
-        Function to get the current time in nanoseconds (ns).
-        
-        Returns:
-            Current time in nanoseconds (ns).
-    */
-    struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    return ts.tv_sec * 1e9 + ts.tv_nsec;
-}
-
-long current_time_ms() {
-    /*
-        Function to get the current time in milliseconds (ms).
-        
-        Returns:
-            Current time in milliseconds (ms).
-    */
-    struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    return ts.tv_sec * 1e3 + ts.tv_nsec / 1e6;
-}
-
-uint64_t get_elapsed_ms(uint64_t start) {
-    /*
-        Function to calculate elapsed time in milliseconds (ms)
-        since the start time.
-        
-        Parameters:
-            start:  The start time in nanoseconds (ns).
-        Returns:
-            Elapsed time in milliseconds (ms).
-    */
-    struct timespec now;
-    clock_gettime(CLOCK_MONOTONIC, &now);
-    uint64_t now_ns = (uint64_t)now.tv_sec * 1e9 + now.tv_nsec;
-    return (now_ns - start)/1000000;
-}
 
 void init_data(UEData *ue, int id){
     /*
@@ -234,13 +195,9 @@ int main() {
         init_data(&ue_data[i],i+1);
     }
     sem_post(sem_ue);   // signals that UE data is ready to be sent
-
     sem_wait(sem_sync); // wait for sync signal
     
-    long start_ns = sync->start_time_ms;
-    printf("[UE] Start sync time: %ld\n", start_ns);
-
-
+    printf("[UE] Start sync time: %s\n", format_time_str(sync->start_time_ms));  
     for (int i = 0; i < MAX_UE; i++) {
         printf("[UE] UE %d: CQI=%d, BSR=%d\n", ue_data[i].id, ue_data[i].cqi, ue_data[i].bsr);
     }
