@@ -26,7 +26,7 @@ void update_data(UEData* ue, int TBSize);
 
 int main() {
     int check_value;
-    char buffer[sizeof(UEData)*NUM_UE + sizeof(TransInfo)];
+    // char buffer[sizeof(UEData)*NUM_UE + sizeof(TransInfo)];
 
     int sock;
     struct sockaddr_in server_addr;
@@ -56,22 +56,22 @@ int main() {
         return 1;
     }
 
-    TransInfo *transport_infomation = (TransInfo*) malloc(NUM_UE*sizeof(TransInfo));
-    if (transport_infomation == NULL) {
-        LOG_ERROR("Memory allocation failed\n");
-        return 1;
-    }    
+    // TransInfo *transport_infomation = (TransInfo*) malloc(NUM_UE*sizeof(TransInfo));
+    // if (transport_infomation == NULL) {
+    //     LOG_ERROR("Memory allocation failed\n");
+    //     return 1;
+    // }    
 
     for (int i = 0; i < NUM_UE; i++) {
         init_data(&ue[i],i+1);
     }
 
     for (int tti = 1; tti <= NUM_TTI; tti++) {
-        transport_infomation->tti = tti;
-        memcpy(buffer, transport_infomation, sizeof(TransInfo));
-        memcpy(buffer + sizeof(TransInfo), ue, sizeof(UEData)*NUM_UE);
+        // transport_infomation->tti = tti;
+        // memcpy(buffer, transport_infomation, sizeof(TransInfo));
+        // memcpy(buffer + sizeof(TransInfo), ue, sizeof(UEData)*NUM_UE);
 
-        check_value = sendto(sock, buffer, sizeof(UEData) * NUM_UE, 0, (struct sockaddr *)&server_addr, addr_len);
+        check_value = sendto(sock, ue, sizeof(UEData) * NUM_UE, 0, (struct sockaddr *)&server_addr, addr_len);
         if (check_value < 0) {
             LOG_ERROR("Cannot sendto Scheduler");
             close(sock);
@@ -93,6 +93,8 @@ int main() {
     }
 
     close(sock);
+    free(ue);
+    free(response);
     return 0;
 }
 
