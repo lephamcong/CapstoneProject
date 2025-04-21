@@ -18,6 +18,29 @@
 
 #ifndef HEADERFILE_H // header guard
 #define HEADERFILE_H // header guard
+
+
+
+/*-----------------------------------------------------------------------*/
+// Config here
+#define TIME_FRAME 1
+#define ENABLE_LOG 0
+#define TBS_FILE "/home/kaonashi/CapstoneProject/CapstoneProject/TBS/TBSArray.csv"
+#define CQI_FILE "/home/kaonashi/CapstoneProject/CapstoneProject/gen_cqi/cqi_ideal_condition.csv"
+#define BSR_FILE "/home/kaonashi/CapstoneProject/CapstoneProject/gen_cqi/bsr_ideal_condition.csv"
+#define LOG_FILE "/home/kaonashi/CapstoneProject/CapstoneProject/ideal_condition/log_TBS_cqi.csv"
+
+enum SCHEDULER_TYPE {
+    ROUND_ROBIN,
+    MAX_CQI,
+    PROPORTIONAL_FAIR,
+    Q_LEARNING
+};
+enum SCHEDULER_TYPE scheduler_type = MAX_CQI; // Default scheduler type
+
+
+
+
 /*-----------------------------------------------------------------------*/
 // ANSI color codes
 #define COLOR_RESET    "\033[0m"
@@ -27,10 +50,17 @@
 #define COLOR_BLUE     "\033[1;34m"
 /*-----------------------------------------------------------------------*/
 // Macros for logging
+#if ENABLE_LOG
 #define LOG_ERROR(msg) fprintf(stderr, COLOR_RED    "[ERROR] [%s:%d] %s: errno=%d (%s)" COLOR_RESET "\n", __FILE__, __LINE__, msg, errno, strerror(errno))
 #define LOG_WARN(msg)  fprintf(stderr, COLOR_YELLOW "[WARN ] [%s:%d] %s" COLOR_RESET "\n", __FILE__, __LINE__, msg)
 #define LOG_INFO(msg)  fprintf(stdout, COLOR_BLUE   "[INFO ] [%s:%d] %s" COLOR_RESET "\n", __FILE__, __LINE__, msg)
 #define LOG_OK(msg)    fprintf(stdout, COLOR_GREEN  "[ OK  ] [%s:%d] %s" COLOR_RESET "\n", __FILE__, __LINE__, msg)
+#else
+#define LOG_ERROR(msg)
+#define LOG_WARN(msg)
+#define LOG_INFO(msg)
+#define LOG_OK(msg)
+#endif
 /*-----------------------------------------------------------------------*/
 //Define arguments for UDP socket
 #define UE_PORT 5501
@@ -44,15 +74,17 @@
 #define NUM_LAYER 1
 #define MAX_UE_PER_TTI 4
 #define SUBFRAME_DURATION 1
-#define NUM_TTI 10
-#define NUM_TTI_RESEND 4
+#define NUM_TTI 10000
+#define NUM_TTI_RESEND 20
 /*-----------------------------------------------------------------------*/
 // Define shared memory and semaphore names
 #define SHM_CQI_BSR   "/shm_cqi_bsr"
 #define SHM_DCI       "/shm_dci"
 #define SHM_SYNC_TIME "/shm_sync_time"
-#define SEM_CQI       "/sem_cqi"
-#define SEM_DCI       "/sem_dci"
+#define SEM_UE_SEND       "/sem_ue_send"
+#define SEM_UE_RECV       "/sem_ue_recv"
+#define SEM_SCHEDULER_SEND "/sem_scheduler_send"
+#define SEM_SCHEDULER_RECV "/sem_scheduler_recv"
 #define SEM_SYNC      "/sem_sync"
 #define MAX_UE 12
 #define TTI_PERIOD_NS 1000000L // 1ms
@@ -115,8 +147,8 @@ static inline uint64_t get_elapsed_ms(uint64_t start) {
     */
     struct timespec now;
     clock_gettime(CLOCK_REALTIME, &now);
-    uint64_t now_ns = (uint64_t)now.tv_sec * 1e9 + now.tv_nsec;
-    return (now_ns - start)/1e6;
+    uint64_t now_ms = (uint64_t)now.tv_sec * 1e3 + now.tv_nsec / 1e6;
+    return (now_ms - start);
 }
 
 static inline uint64_t get_current_time_ms() {
@@ -129,6 +161,35 @@ static inline uint64_t get_current_time_ms() {
     struct timespec ts;
     clock_gettime(CLOCK_REALTIME, &ts);
     return (uint64_t)ts.tv_sec * 1e3 + ts.tv_nsec / 1e6;
+}
+
+
+static inline uint64_t get_elapsed_tti_frame(uint64_t start) {
+    /*
+        Function to calculate elapsed time in milliseconds (ms)
+        since the start time.
+        
+        Parameters:
+            start:  The start time in nanoseconds (ns).
+        Returns:
+            Elapsed time in milliseconds (ms).
+    */
+    struct timespec now;
+    clock_gettime(CLOCK_REALTIME, &now);
+    uint64_t now_ms = ((uint64_t)now.tv_sec * 1e3 + now.tv_nsec / 1e6) / TIME_FRAME;
+    return (now_ms - start);
+}
+
+static inline uint64_t get_current_tti_frame() {
+    /*
+        Function to get the current time in milliseconds (ms).
+        
+        Returns:
+            Current time in milliseconds (ms).
+    */
+    struct timespec ts;
+    clock_gettime(CLOCK_REALTIME, &ts);
+    return (uint64_t) (ts.tv_sec * 1e3 + ts.tv_nsec / 1e6) / TIME_FRAME;
 }
 /*-----------------------------------------------------------------------*/
 // Function to write data to a CSV file

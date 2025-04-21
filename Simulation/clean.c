@@ -1,25 +1,55 @@
 #include "define.h"
 
 int main(){
-    sem_unlink(SEM_CQI);
-    sem_unlink(SEM_DCI);
-    sem_unlink(SEM_SYNC);
-    shm_unlink(SHM_CQI_BSR);
-    shm_unlink(SHM_DCI);
-    shm_unlink(SHM_SYNC_TIME);
+    // Unlink shared memory and semaphores
+    if (sem_unlink(SEM_UE_SEND) == -1) {
+        LOG_ERROR("Failed to unlink semaphore for UE data");
+        return 1;
+    } else {
+        LOG_OK("Semaphore for UE data unlinked successfully");
+    }
+    if (sem_unlink(SEM_UE_RECV) == -1) {
+        LOG_ERROR("Failed to unlink semaphore for UE data");
+        return 1;
+    } else {
+        LOG_OK("Semaphore for UE data unlinked successfully");
+    }
+    if (sem_unlink(SEM_SCHEDULER_SEND) == -1) {
+        LOG_ERROR("Failed to unlink semaphore for SchedulerResponse");
+        return 1;
+    } else {
+        LOG_OK("Semaphore for SchedulerResponse unlinked successfully");
+    }
+    if (sem_unlink(SEM_SCHEDULER_RECV) == -1) {
+        LOG_ERROR("Failed to unlink semaphore for SchedulerResponse");
+        return 1;
+    } else {
+        LOG_OK("Semaphore for SchedulerResponse unlinked successfully");
+    }
+    if (sem_unlink(SEM_SYNC) == -1) {
+        LOG_ERROR("Failed to unlink semaphore for sync");
+        return 1;
+    } else {
+        LOG_OK("Semaphore for sync unlinked successfully");
+    }
+    if (shm_unlink(SHM_CQI_BSR) == -1) {
+        LOG_ERROR("Failed to unlink shared memory for UE data");
+        return 1;
+    } else {
+        LOG_OK("Shared memory for UE data unlinked successfully");
+    }
+    if (shm_unlink(SHM_DCI) == -1) {
+        LOG_ERROR("Failed to unlink shared memory for SchedulerResponse");
+        return 1;
+    } else {
+        LOG_OK("Shared memory for SchedulerResponse unlinked successfully");
+    }
+    if (shm_unlink(SHM_SYNC_TIME) == -1) {
+        LOG_ERROR("Failed to unlink shared memory for sync");
+        return 1;
+    } else {
+        LOG_OK("Shared memory for sync unlinked successfully");
+    }
     printf("Unlinking shared memory and semaphores...\n");
-    // Free allocated memory
-    // free(ue);
-    // free(response);
-    // free(transport_infomation);
-    // free(buffer);
-    // free(ue_data);
-    // free(response_data);
-    // free(transport_infomation);
-    // free(ue);
-    // free(response);
-    // free(transport_infomation);
-    // free(buffer);
-    // free(ue_data);
     return 0;
 }
