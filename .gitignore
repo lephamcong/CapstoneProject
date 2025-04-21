@@ -11,9 +11,10 @@
 !*.md
 !*.h
 !*.sh
-<<<<<<< HEAD
+!*.cpp
+!*.py
 !*.gitignore
 !*.txt
-=======
+
 !.gitignore
->>>>>>> main
+
