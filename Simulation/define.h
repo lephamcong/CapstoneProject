@@ -25,10 +25,10 @@
 // Config here
 #define TIME_FRAME 1
 #define ENABLE_LOG 0
-#define TBS_FILE "/home/kaonashi/CapstoneProject/CapstoneProject/TBS/TBSArray.csv"
-#define CQI_FILE "/home/kaonashi/CapstoneProject/CapstoneProject/gen_cqi/cqi_ideal_condition.csv"
-#define BSR_FILE "/home/kaonashi/CapstoneProject/CapstoneProject/gen_cqi/bsr_ideal_condition.csv"
-#define LOG_FILE "/home/kaonashi/CapstoneProject/CapstoneProject/ideal_condition/log_TBS_cqi.csv"
+#define TBS_FILE "/home/lephamcong/VHT2024/CapstoneProject/Simulation/TBSArray.csv"
+#define CQI_FILE "/home/lephamcong/VHT2024/CapstoneProject/Simulation/data/testData/cqi_data.csv"
+#define BSR_FILE "/home/lephamcong/VHT2024/CapstoneProject/Simulation/data/testData/bsr_data.csv"
+#define LOG_FILE "/home/lephamcong/VHT2024/CapstoneProject/Simulation/data/testData/test_MaxCQI.csv"
 
 enum SCHEDULER_TYPE {
     ROUND_ROBIN,
