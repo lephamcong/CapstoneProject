@@ -17,5 +17,12 @@ tempCodeRunnerFile.c
 !*.md
 !*.h
 !*.sh
+!*.cpp
+!*.py
+!*.gitignore
+!*.txt
+!*.ipynb
+
+
 !.gitignore
 !*.ipynb
