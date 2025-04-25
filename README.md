@@ -12,7 +12,7 @@
 
   <h2 align="center">CAPSTONE PROJECT</h2>
   <h3>Topic: Analysis and simulation of MAC layer resource scheduling algorithms in 5G NR</h3>
-  
+  <hr/>
 </div>
 
 ## Information
