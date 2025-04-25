@@ -10,10 +10,28 @@ void TBS_Table();           // Load TBS table from CSV file
 void RoundRobin(UEData* ue_data, SchedulerResponse *response); // Round Robin scheduling algorithm
 void log_tbsize(FILE *log_file, int tti, SchedulerResponse *response, int num_ue);
 void MaxCQI(UEData *ue_data, SchedulerResponse *response);
+void ProportionalFair(UEData *ue_data, SchedulerResponse *response,
+                      float *avg_throughput, int *tti_since_last_sched);
 
-int main() {
-
+int main(int argc, char *argv[]) {
+    if (argc < 3) {
+        LOG_ERROR("Missing scenario file.");
+        return 1;
+    }
+    const char *result_pathfile = argv[1];
+    const char *type_scheduler = argv[2];
+    enum SCHEDULER_TYPE scheduler_type;
+    if (strcmp(type_scheduler,"rr") == 0) scheduler_type = ROUND_ROBIN; // Default scheduler type
+    else if (strcmp(type_scheduler,"max_cqi") == 0) scheduler_type = MAX_CQI;
+    else if (strcmp(type_scheduler,"pf") == 0) scheduler_type = PROPORTIONAL_FAIR;
+    else if (strcmp(type_scheduler,"q_learning") == 0) scheduler_type = Q_LEARNING;
+    else {
+        LOG_ERROR("Invalid scheduler type");
+        return 1;
+    }
     int tti_now = 0, tti_last = 0;
+    float avg_throughput[NUM_UE] = {0};         // Trung bình tốc độ ban đầu
+            int tti_since_last_sched[NUM_UE] = {0};
 
     // Define a timespec structure for nanosleep with a timeout of 400 microseconds
     struct timespec req_timeout = {.tv_sec = 0, .tv_nsec = 400000}; 
@@ -208,16 +226,16 @@ int main() {
     // Load TBS table from CSV file
     TBS_Table();
 
-    FILE *log_file = fopen(LOG_FILE, "w");
-    if (log_file == NULL) {
+    FILE *result_file = fopen(result_pathfile, "w");
+    if (result_file == NULL) {
         LOG_ERROR("Error opening log file");
         return 1;
     } else {
         LOG_OK("Log file opened successfully");
     }
-    fprintf(log_file, "TTI");
+    fprintf(result_file, "TTI");
     for (int i = 0; i < NUM_UE; i++) {
-        fprintf(log_file, ",UE%d", i);
+        fprintf(result_file, ",UE%d", i);
     }
 
     LOG_OK("Ready...");
@@ -228,7 +246,7 @@ int main() {
     } else {
         LOG_OK("Scheduler started successfully");
     }
-    printf("Scheduler start sync time: %s\n", format_time_str(sync->start_time_ms));
+    LOG_INFO("Scheduler start sync time: %s\n", format_time_str(sync->start_time_ms));
     
 
     // Loop TTI
@@ -237,10 +255,10 @@ int main() {
         if (tti_now > tti_last) {
             if (tti_now - tti_last != 1) {
                 LOG_ERROR("Scheduler cannot keep up with TTI");
-                printf("Scheduler TTI: %d, TTI last %d\n", tti_now, tti_last);
+                LOG_ERROR("Scheduler TTI: %d, TTI last %d\n", tti_now, tti_last);
                 return -1;
             }
-            printf("Run TTI: %d\n", tti_now);
+            LOG_INFO("Run TTI: %d\n", tti_now);
             if (tti_now % NUM_TTI_RESEND == 1) {
                 if (sem_wait(sem_ue_send) == -1) {
                     LOG_ERROR("Failed to wait for UE data semaphore");
@@ -276,7 +294,7 @@ int main() {
                     MaxCQI(ue, response_data);
                     break;
                 case PROPORTIONAL_FAIR:
-                    //
+                    ProportionalFair(ue, response_data, avg_throughput, tti_since_last_sched);
                     break;
                 case Q_LEARNING:
                     //
@@ -302,7 +320,7 @@ int main() {
             //     printf("[Updated] UE %d after upgrade: CQI=%d, BSR=%d\n", ue[i].id, ue[i].cqi, ue[i].bsr);
             // }
 
-            log_tbsize(log_file, tti_now, response_data, NUM_UE);
+            log_tbsize(result_file, tti_now, response_data, NUM_UE);
 
             if (sem_wait(sem_ue_recv) == -1) {
                 LOG_ERROR("Failed to wait for SchedulerResponse semaphore");
@@ -496,7 +514,7 @@ void RoundRobin(UEData *ue_data, SchedulerResponse *response) {
 
         int mcs = cqi_to_mcs(cqi);
         if (mcs < 0 || mcs >= MAX_MCS_INDEX) {
-            printf("[WARN] UE %d có MCS không hợp lệ (CQI=%d → MCS=%d) -> Bỏ qua\n", ue_data[idx].id, cqi, mcs);
+            LOG_ERROR("[WARN] UE %d có MCS không hợp lệ (CQI=%d → MCS=%d) -> Bỏ qua\n", ue_data[idx].id, cqi, mcs);
             continue;
         }
 
@@ -568,12 +586,14 @@ void MaxCQI(UEData *ue_data, SchedulerResponse *response) {
 
         int mcs = cqi_to_mcs(max_cqi);
         if (mcs < 0 || mcs >= MAX_MCS_INDEX) {
+            // printf("[WARN] MCS không hợp lệ cho CQI=%d của UE %d\n", max_cqi, ue_data[max_idx].id);
             scheduled_ue[max_idx] = 1;
             continue;
         }
 
         int tb_size = TBS[mcs][rb_per_ue - 1];
         if (tb_size <= 0) {
+            LOG_ERROR("[WARN] TBS lỗi tại MCS=%d\n", mcs);
             scheduled_ue[max_idx] = 1;
             continue;
         }
@@ -585,4 +605,78 @@ void MaxCQI(UEData *ue_data, SchedulerResponse *response) {
         scheduled_ue[max_idx] = 1;
         scheduled++;
     }
+}
+
+void ProportionalFair(UEData *ue_data, SchedulerResponse *response,
+                      float *avg_throughput, int *tti_since_last_sched) {
+    int scheduled = 0;
+    int rb_per_ue = NUM_RB / MAX_UE_PER_TTI;
+
+    int scheduled_ue[NUM_UE] = {0};  // Đánh dấu ai đã được lập lịch trong TTI này
+
+    // Reset phản hồi
+    for (int i = 0; i < NUM_UE; i++) {
+        response[i].id = ue_data[i].id;
+        response[i].tb_size = 0;
+    }
+
+    while (scheduled < MAX_UE_PER_TTI) {
+        float max_metric = -1.0;
+        int selected = -1;
+
+        for (int i = 0; i < NUM_UE; i++) {
+            if (scheduled_ue[i] || ue_data[i].bsr <= 0 || ue_data[i].cqi <= 0)
+                continue;
+
+            int mcs = cqi_to_mcs(ue_data[i].cqi);
+            if (mcs < 0 || mcs >= MAX_MCS_INDEX) continue;
+
+            int tb_size = TBS[mcs][rb_per_ue - 1];
+            if (tb_size <= 0) continue;
+
+            float inst_throughput = (float)tb_size;
+            float metric;
+
+            if (tti_since_last_sched[i] >= MAX_TTI_WITHOUT_SCHED) {
+                metric = 1e9;  // Ưu tiên tuyệt đối
+            } else if (avg_throughput[i] > 0.0) {
+                metric = inst_throughput / avg_throughput[i];
+            } else {
+                metric = inst_throughput;
+            }
+
+            if (metric > max_metric) {
+                max_metric = metric;
+                selected = i;
+            }
+        }
+
+        if (selected == -1) break;
+
+        int mcs = cqi_to_mcs(ue_data[selected].cqi);
+        int tb_size = TBS[mcs][rb_per_ue - 1];
+
+        response[selected].tb_size = tb_size;
+        ue_data[selected].bsr -= tb_size;
+        if (ue_data[selected].bsr < 0) ue_data[selected].bsr = 0;
+
+        // Cập nhật throughput trung bình cho UE được lập lịch
+        avg_throughput[selected] = (1.0 - ALPHA) * avg_throughput[selected] + ALPHA * tb_size;
+
+        tti_since_last_sched[selected] = 0;  // Reset do được lập lịch
+        scheduled_ue[selected] = 1;
+        scheduled++;
+    }
+
+    for (int i = 0; i < NUM_UE; i++) {
+        if (!scheduled_ue[i]) {
+            tti_since_last_sched[i]++;
+            avg_throughput[i] = (1 - ALPHA) * avg_throughput[i];  // Giảm trung bình theo thời gian
+        }
+    }
+
+    // print tti_since_last_sched and avg_throughput
+    // for (int i = 0; i < NUM_UE; i++) {
+    //     printf("UE %d: TSLS=%d, AvgThroughput=%.2f\n", ue_data[i].id, tti_since_last_sched[i], avg_throughput[i]);
+    // }
 }

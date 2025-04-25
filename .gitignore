@@ -1,10 +1,16 @@
 # skip all file
 *
 
+# skip folder
+!.vscode
+!.vscode/
+
 # allow all folder
 !*/
 
+
 # allow all file with extension
+tempCodeRunnerFile.c
 !*.csv
 !*.c
 !*.pdf
@@ -19,4 +25,4 @@
 
 
 !.gitignore
-
+!*.ipynb
