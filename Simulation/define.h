@@ -25,7 +25,7 @@
 // Config here
 #define TIME_FRAME 1
 #define ENABLE_LOG 0
-#define TBS_FILE "/home/kaonashi/CapstoneProject/CapstoneProject/TBS/TBSArray.csv"
+#define TBS_FILE "./TBS/TBSArray.csv"
 // #define CQI_FILE "/home/kaonashi/CapstoneProject/CapstoneProject/gen_cqi/cqi_ideal_condition.csv"
 // #define BSR_FILE "/home/kaonashi/CapstoneProject/CapstoneProject/gen_cqi/bsr_ideal_condition.csv"
 // #define LOG_FILE "/home/kaonashi/CapstoneProject/CapstoneProject/ideal_condition/log_TBS_cqi.csv"

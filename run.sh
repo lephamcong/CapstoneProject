@@ -10,7 +10,7 @@ gcc -o clean ./Simulation/clean.c
 gcc -o server ./Simulation/server.c ./Simulation/define.h
 gcc -o client ./Simulation/client.c ./Simulation/define.h
 
-mkdir -p results
+mkdir -p result
 
 for SCENARIO in "${SCENARIORS[@]}"; do
     # Compile the server.c file

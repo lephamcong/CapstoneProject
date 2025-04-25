@@ -23,6 +23,3 @@ tempCodeRunnerFile.c
 !*.txt
 !*.ipynb
 
-
-!.gitignore
-!*.ipynb
