@@ -23,7 +23,7 @@
 
 ### Supervisors:
 - **PhD. Van Phu Tuan** — Faculty of Electronics and Telecommunication Engineering, University of Science and Technology, University of Danang (DUT)
-- **Engineer. Pham Khanh Trung** — Viettel High Technology Industries Corporation
+- **Engineer. Pham Khanh Trung** — Viettel High Technology Industries Corporation (VHT)
 
 ---
 ## Summary
