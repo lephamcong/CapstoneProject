@@ -3,7 +3,13 @@
 void update_data(UEData* ue, int TBSize);
 void get_data_from_file(const char *cqi_filename, const char *bsr_filename, int tti, UEData *ue);
 
-int main() {
+int main(int argc, char *argv[]) {
+    if (argc != 3) {
+        fprintf(stderr, "Missing scenario file.\n");
+        return 1;
+    }
+    const char* cqi_pathfile = argv[1];
+    const char* bsr_pathfile = argv[2];
     // create shared memory for synchronization
     int shm_sync = shm_open(
         SHM_SYNC_TIME,      // name of the shared memory object 
@@ -204,13 +210,13 @@ int main() {
         if (tti_now > tti_last) {
             if (tti_now - tti_last != 1) {
                 LOG_ERROR("Scheduler cannot keep up with TTI");
-                printf("Scheduler TTI: %d, TTI last %d\n", tti_now, tti_last);
+                LOG_ERROR("Scheduler TTI: %d, TTI last %d\n", tti_now, tti_last);
                 return -1;
             }
 
-            printf("Run TTI: %d\n", tti_now);
+            LOG_INFO("Run TTI: %d\n", tti_now);
             if (tti_now % NUM_TTI_RESEND == 1) {
-                get_data_from_file(CQI_FILE, BSR_FILE, tti_now, ue_data);
+                get_data_from_file(cqi_pathfile, bsr_pathfile, tti_now, ue_data);
                 if (sem_post(sem_ue_send) == -1) {
                     LOG_ERROR("Failed to post semaphore for UE data");
                     return 1;

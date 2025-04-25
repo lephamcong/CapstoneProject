@@ -25,10 +25,10 @@
 // Config here
 #define TIME_FRAME 1
 #define ENABLE_LOG 0
-#define TBS_FILE "/home/lephamcong/VHT2024/CapstoneProject/Simulation/TBSArray.csv"
-#define CQI_FILE "/home/lephamcong/VHT2024/CapstoneProject/Simulation/data/testData/cqi_data.csv"
-#define BSR_FILE "/home/lephamcong/VHT2024/CapstoneProject/Simulation/data/testData/bsr_data.csv"
-#define LOG_FILE "/home/lephamcong/VHT2024/CapstoneProject/Simulation/data/testData/test_MaxCQI.csv"
+#define TBS_FILE "/home/kaonashi/CapstoneProject/CapstoneProject/TBS/TBSArray.csv"
+// #define CQI_FILE "/home/kaonashi/CapstoneProject/CapstoneProject/gen_cqi/cqi_ideal_condition.csv"
+// #define BSR_FILE "/home/kaonashi/CapstoneProject/CapstoneProject/gen_cqi/bsr_ideal_condition.csv"
+// #define LOG_FILE "/home/kaonashi/CapstoneProject/CapstoneProject/ideal_condition/log_TBS_cqi.csv"
 
 enum SCHEDULER_TYPE {
     ROUND_ROBIN,
@@ -36,9 +36,6 @@ enum SCHEDULER_TYPE {
     PROPORTIONAL_FAIR,
     Q_LEARNING
 };
-enum SCHEDULER_TYPE scheduler_type = MAX_CQI; // Default scheduler type
-
-
 
 
 /*-----------------------------------------------------------------------*/
@@ -51,21 +48,23 @@ enum SCHEDULER_TYPE scheduler_type = MAX_CQI; // Default scheduler type
 /*-----------------------------------------------------------------------*/
 // Macros for logging
 #if ENABLE_LOG
-#define LOG_ERROR(msg) fprintf(stderr, COLOR_RED    "[ERROR] [%s:%d] %s: errno=%d (%s)" COLOR_RESET "\n", __FILE__, __LINE__, msg, errno, strerror(errno))
-#define LOG_WARN(msg)  fprintf(stderr, COLOR_YELLOW "[WARN ] [%s:%d] %s" COLOR_RESET "\n", __FILE__, __LINE__, msg)
-#define LOG_INFO(msg)  fprintf(stdout, COLOR_BLUE   "[INFO ] [%s:%d] %s" COLOR_RESET "\n", __FILE__, __LINE__, msg)
-#define LOG_OK(msg)    fprintf(stdout, COLOR_GREEN  "[ OK  ] [%s:%d] %s" COLOR_RESET "\n", __FILE__, __LINE__, msg)
+#define LOG_ERROR(fmt, ...) fprintf(stderr, COLOR_RED    "[ERROR] [%s:%d] " fmt COLOR_RESET "\n", __FILE__, __LINE__, ##__VA_ARGS__)
+#define LOG_WARN(fmt, ...)  fprintf(stderr, COLOR_YELLOW "[WARN ] [%s:%d] " fmt COLOR_RESET "\n", __FILE__, __LINE__, ##__VA_ARGS__)
+#define LOG_INFO(fmt, ...)  fprintf(stdout, COLOR_BLUE   "[INFO ] [%s:%d] " fmt COLOR_RESET "\n", __FILE__, __LINE__, ##__VA_ARGS__)
+#define LOG_OK(fmt, ...)    fprintf(stdout, COLOR_GREEN  "[ OK  ] [%s:%d] " fmt COLOR_RESET "\n", __FILE__, __LINE__, ##__VA_ARGS__)
+
 #else
-#define LOG_ERROR(msg)
-#define LOG_WARN(msg)
-#define LOG_INFO(msg)
-#define LOG_OK(msg)
+#define LOG_ERROR(fmt, ...) fprintf(stderr, COLOR_RED    "[ERROR] [%s:%d] " fmt COLOR_RESET "\n", __FILE__, __LINE__, ##__VA_ARGS__)
+#define LOG_WARN(fmt, ...)
+#define LOG_INFO(fmt, ...)
+#define LOG_OK(fmt, ...)
 #endif
 /*-----------------------------------------------------------------------*/
 //Define arguments for UDP socket
 #define UE_PORT 5501
 #define SERVER_PORT 5500
 #define SERVER_IP "127.0.0.1"
+/*-----------------------------------------------------------------------*/
 /*-----------------------------------------------------------------------*/
 // Define arguments for MAC Scheduler
 #define NUM_UE 12
@@ -74,6 +73,46 @@ enum SCHEDULER_TYPE scheduler_type = MAX_CQI; // Default scheduler type
 #define NUM_LAYER 1
 #define MAX_UE_PER_TTI 4
 #define SUBFRAME_DURATION 1
+#define NUM_TTI 10000
+#define NUM_TTI_RESEND 20
+/*-----------------------------------------------------------------------*/
+// Define shared memory and semaphore names
+#define SHM_CQI_BSR   "/shm_cqi_bsr"
+#define SHM_DCI       "/shm_dci"
+#define SHM_SYNC_TIME "/shm_sync_time"
+#define SEM_UE_SEND       "/sem_ue_send"
+#define SEM_UE_RECV       "/sem_ue_recv"
+#define SEM_SCHEDULER_SEND "/sem_scheduler_send"
+#define SEM_SCHEDULER_RECV "/sem_scheduler_recv"
+#define SEM_SYNC      "/sem_sync"
+#define MAX_UE 12
+#define TTI_PERIOD_NS 1000000L // 1ms
+/*-----------------------------------------------------------------------*/
+// Define structures for UE data and transport information
+typedef struct
+{
+    int tti;
+} TransInfo;
+
+typedef struct {
+    int id;
+    int cqi;
+    int bsr;
+} UEData;
+/*-----------------------------------------------------------------------*/
+// Define structure for Scheduler response
+typedef struct {
+    int id;
+    int tb_size;
+} SchedulerResponse;
+
+// define structure for Sync time
+typedef struct {
+    long start_time_ms;
+} SyncTime;
+
+
+/*-----------------------------------------------------------------------*/
 #define NUM_TTI 10000
 #define NUM_TTI_RESEND 20
 /*-----------------------------------------------------------------------*/
@@ -238,5 +277,10 @@ static inline void read_csv(const char *filename) {
     fclose(file);
 }
 /*-----------------------------------------------------------------------*/
+
+// For Proportional Fair Algorithm
+#define MAX_TTI_WITHOUT_SCHED 40
+#define ALPHA 0.2  // Hệ số làm mượt trung bình PF
+
 
 #endif
