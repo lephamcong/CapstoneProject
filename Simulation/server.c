@@ -568,14 +568,12 @@ void MaxCQI(UEData *ue_data, SchedulerResponse *response) {
 
         int mcs = cqi_to_mcs(max_cqi);
         if (mcs < 0 || mcs >= MAX_MCS_INDEX) {
-            // printf("[WARN] MCS không hợp lệ cho CQI=%d của UE %d\n", max_cqi, ue_data[max_idx].id);
             scheduled_ue[max_idx] = 1;
             continue;
         }
 
         int tb_size = TBS[mcs][rb_per_ue - 1];
         if (tb_size <= 0) {
-            printf("[WARN] TBS lỗi tại MCS=%d\n", mcs);
             scheduled_ue[max_idx] = 1;
             continue;
         }
