@@ -15,8 +15,8 @@ void ProportionalFair(UEData *ue_data, SchedulerResponse *response,
 int TBS[MAX_MCS_INDEX][NUM_RB];
 
 int main() {
-    const char *cqi_file = "/home/kaonashi/CapstoneProject/CapstoneProject/gen_cqi/cqi_burst_traffic.csv";
-    const char *bsr_file = "/home/kaonashi/CapstoneProject/CapstoneProject/gen_cqi/bsr_burst_traffic.csv";
+    const char *cqi_file = "/home/kaonashi/CapstoneProject/CapstoneProject/Simulation/data/cqi_high_traffic.csv";
+    const char *bsr_file = "/home/kaonashi/CapstoneProject/CapstoneProject/Simulation/data/bsr_high_traffic.csv";
 
     TBS_Table(); 
     float avg_throughput[NUM_UE] = {0};         // Trung bình tốc độ ban đầu
@@ -203,7 +203,6 @@ void TBS_Table() {
 
 
 #define MAX_TTI_WITHOUT_SCHED 40
-#define ALPHA 0.2  // Hệ số làm mượt trung bình PF
 
 void ProportionalFair(UEData *ue_data, SchedulerResponse *response,
                       float *avg_throughput, int *tti_since_last_sched) {
