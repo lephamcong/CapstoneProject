@@ -74,7 +74,7 @@ enum SCHEDULER_TYPE {
 #define MAX_UE_PER_TTI 4
 #define SUBFRAME_DURATION 1
 #define NUM_TTI 10000
-#define NUM_TTI_RESEND 20
+#define NUM_TTI_RESEND 10
 /*-----------------------------------------------------------------------*/
 // Define shared memory and semaphore names
 #define SHM_CQI_BSR   "/shm_cqi_bsr"
@@ -239,7 +239,8 @@ static inline void read_csv(const char *filename) {
 
 // For Proportional Fair Algorithm
 #define MAX_TTI_WITHOUT_SCHED 40
-#define ALPHA 0.2  // Hệ số làm mượt trung bình PF
+#define ALPHA 0.8  // Hệ số làm mượt trung bình PF
+#define BETA 0.5   // He so cua mau so
 
 
 #endif
