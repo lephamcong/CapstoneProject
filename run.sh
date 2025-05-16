@@ -3,11 +3,11 @@
 pkill server
 pkill client
 
-SCENARIORS=("high_traffic" "low_traffic" "burst_traffic" "ideal_condition" "mobility_pattern" "ideal_condition_bsr10000" "ideal_condition_bsr100000")
+SCENARIORS=("high_traffic" "low_traffic" "ideal_condition_bsr100000")
 TYPE_SCHEDULER=("rr" "max_cqi" "pf")
 
 gcc -o clean ./Simulation/clean.c
-gcc -o server ./Simulation/server.c ./Simulation/define.h
+gcc -o server ./Simulation/server.c ./Simulation/define.h -lm
 gcc -o client ./Simulation/client.c ./Simulation/define.h
 
 mkdir -p result

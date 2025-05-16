@@ -87,11 +87,11 @@ def scenario_ideal_condition():
         if ue < 4:
             row = [random.randint(11, 15) for _ in range(NUM_TTI)]  # nhóm tốt
         elif ue < 8:
-            row = [random.randint(5, 10) for _ in range(NUM_TTI)]   # nhóm trung bình
+            row = [random.randint(6, 10) for _ in range(NUM_TTI)]   # nhóm trung bình
         else:
-            row = [random.randint(0, 4) for _ in range(NUM_TTI)]    # nhóm xấu
+            row = [random.randint(1, 5) for _ in range(NUM_TTI)]    # nhóm xấu
         cqi.append(row)
-
+    
     bsr = random_bsr(40000, 70000)  # traffic vừa phải
     return cqi, bsr
 
@@ -101,9 +101,9 @@ def scenario_ideal_condition_bsr10000():
         if ue < 4:
             row = [random.randint(11, 15) for _ in range(NUM_TTI)]  # nhóm tốt
         elif ue < 8:
-            row = [random.randint(5, 10) for _ in range(NUM_TTI)]   # nhóm trung bình
+            row = [random.randint(6, 10) for _ in range(NUM_TTI)]   # nhóm trung bình
         else:
-            row = [random.randint(0, 4) for _ in range(NUM_TTI)]    # nhóm xấu
+            row = [random.randint(1, 5) for _ in range(NUM_TTI)]    # nhóm xấu
         cqi.append(row)
 
     bsr = random_bsr(9000,10000)  # traffic vừa phải
@@ -115,9 +115,9 @@ def scenario_idal_condition_bsr100000():
         if ue < 4:
             row = [random.randint(11, 15) for _ in range(NUM_TTI)]  # nhóm tốt
         elif ue < 8:
-            row = [random.randint(5, 10) for _ in range(NUM_TTI)]   # nhóm trung bình
+            row = [random.randint(6, 10) for _ in range(NUM_TTI)]   # nhóm trung bình
         else:
-            row = [random.randint(0, 4) for _ in range(NUM_TTI)]    # nhóm xấu
+            row = [random.randint(1, 5) for _ in range(NUM_TTI)]    # nhóm xấu
         cqi.append(row)
 
     bsr = random_bsr(90000,100000)  # traffic raast cao
