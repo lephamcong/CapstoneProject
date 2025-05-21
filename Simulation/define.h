@@ -239,8 +239,6 @@ static inline void read_csv(const char *filename) {
 
 // For Proportional Fair Algorithm
 #define MAX_TTI_WITHOUT_SCHED 40
-#define ALPHA 0.8  // Hệ số làm mượt trung bình PF
-#define BETA 0.5   // He so cua mau so
-
+#define T_pf 20
 
 #endif

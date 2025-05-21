@@ -637,10 +637,11 @@ void ProportionalFair(UEData *ue_data, SchedulerResponse *response,
             float inst_throughput = (float)tb_size;
             float metric;
 
-            if (tti_since_last_sched[i] >= MAX_TTI_WITHOUT_SCHED) {
-                metric = 1e9;  // Ưu tiên tuyệt đối
-            } else if (avg_throughput[i] > 0.0) {
-                metric = inst_throughput / pow(avg_throughput[i],BETA);
+            // if (tti_since_last_sched[i] >= MAX_TTI_WITHOUT_SCHED) {
+            //     metric = 1e9;  // Ưu tiên tuyệt đối
+            // } else 
+            if (avg_throughput[i] > 0.0) {
+                metric = inst_throughput / avg_throughput[i];
             } else {
                 metric = inst_throughput;
             }
@@ -661,7 +662,7 @@ void ProportionalFair(UEData *ue_data, SchedulerResponse *response,
         if (ue_data[selected].bsr < 0) ue_data[selected].bsr = 0;
 
         // Cập nhật throughput trung bình cho UE được lập lịch
-        avg_throughput[selected] = ALPHA * avg_throughput[selected] + (1 - ALPHA) * tb_size;
+        avg_throughput[selected] = (1 - (float)1 / T_pf) * avg_throughput[selected] + (float)1 / T_pf * tb_size;
 
         tti_since_last_sched[selected] = 0;  // Reset do được lập lịch
         scheduled_ue[selected] = 1;
@@ -671,7 +672,7 @@ void ProportionalFair(UEData *ue_data, SchedulerResponse *response,
     for (int i = 0; i < NUM_UE; i++) {
         if (!scheduled_ue[i]) {
             tti_since_last_sched[i]++;
-            avg_throughput[i] = ALPHA * avg_throughput[i];  // Giảm trung bình theo thời gian
+            avg_throughput[i] = (1 - (float)1 / T_pf) * avg_throughput[i];  // Giảm trung bình theo thời gian
         }
     }
 
