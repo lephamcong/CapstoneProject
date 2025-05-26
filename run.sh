@@ -3,8 +3,11 @@
 pkill server
 pkill client
 
-SCENARIORS=("high_traffic" "low_traffic" "ideal_condition_bsr100000")
-TYPE_SCHEDULER=("rr" "max_cqi" "pf")
+# SCENARIORS=("high_traffic" "low_traffic" "ideal_condition_bsr100000")
+# TYPE_SCHEDULER=("rr" "max_cqi" "pf")
+
+SCENARIORS=("ideal_condition_bsr100000")
+TYPE_SCHEDULER=("pf")
 
 gcc -o clean ./Simulation/clean.c
 gcc -o server ./Simulation/server.c ./Simulation/define.h -lm
