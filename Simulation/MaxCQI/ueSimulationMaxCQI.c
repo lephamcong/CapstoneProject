@@ -1,4 +1,4 @@
-#include "define.h"
+#include "Simulation/define.h"
 
 void update_data(UEData* ue, int TBSize);
 void get_data_from_file(const char *cqi_filename, const char *bsr_filename, int tti, UEData *ue);

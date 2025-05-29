@@ -1,38 +1,20 @@
-#include "define.h"
+#include "Simulation/define.h"
 
 #define TTI_DURATION_NS 1000000L // 1ms = 1,000,000 nanoseconds
 
-
 int TBS[MAX_MCS_INDEX][NUM_RB];
 
-int cqi_to_mcs(int cqi);    // Mapping CQI to MCS index
-void TBS_Table();           // Load TBS table from CSV file
-void RoundRobin(UEData* ue_data, SchedulerResponse *response); // Round Robin scheduling algorithm
-void log_tbsize(FILE *log_file, int tti, SchedulerResponse *response, int num_ue);
 void MaxCQI(UEData *ue_data, SchedulerResponse *response);
-void ProportionalFair(UEData *ue_data, SchedulerResponse *response,
-                      float *avg_throughput, int *tti_since_last_sched);
 
 int main(int argc, char *argv[]) {
-    if (argc < 3) {
+    if (argc < 2) {
         LOG_ERROR("Missing scenario file.");
         return 1;
     }
-    const char *result_pathfile = argv[1];
-    const char *type_scheduler = argv[2];
-    enum SCHEDULER_TYPE scheduler_type;
-    if (strcmp(type_scheduler,"rr") == 0) scheduler_type = ROUND_ROBIN; // Default scheduler type
-    else if (strcmp(type_scheduler,"max_cqi") == 0) scheduler_type = MAX_CQI;
-    else if (strcmp(type_scheduler,"pf") == 0) scheduler_type = PROPORTIONAL_FAIR;
-    else if (strcmp(type_scheduler,"q_learning") == 0) scheduler_type = Q_LEARNING;
-    else {
-        LOG_ERROR("Invalid scheduler type");
-        return 1;
-    }
-    int tti_now = 0, tti_last = 0;
-    float avg_throughput[NUM_UE] = {0};         // Trung bình tốc độ ban đầu
-            int tti_since_last_sched[NUM_UE] = {0};
-
+    const char *result_pathfile = argv[1];      // File path for logging results
+    int tti_now = 0, tti_last = 0;              // Current and last TTI
+    float avg_throughput[NUM_UE] = {0};         // Average throughput for each UE
+    int tti_since_last_sched[NUM_UE] = {0};     // TTI since last scheduling for each UE
     // Define a timespec structure for nanosleep with a timeout of 400 microseconds
     struct timespec req_timeout = {.tv_sec = 0, .tv_nsec = 400000}; 
 
@@ -248,6 +230,7 @@ int main(int argc, char *argv[]) {
     }
     LOG_INFO("Scheduler start sync time: %s\n", format_time_str(sync->start_time_ms));
     
+
     // Loop TTI
     while (tti_now < NUM_TTI) {
         tti_now = get_elapsed_tti_frame(sync->start_time_ms);
@@ -285,23 +268,8 @@ int main(int argc, char *argv[]) {
                 }
             }
             
-            switch (scheduler_type) {
-                case ROUND_ROBIN:
-                    RoundRobin(ue, response_data);
-                    break;
-                case MAX_CQI:
-                    MaxCQI(ue, response_data);
-                    break;
-                case PROPORTIONAL_FAIR:
-                    ProportionalFair(ue, response_data, avg_throughput, tti_since_last_sched);
-                    break;
-                case Q_LEARNING:
-                    //
-                    break;
-                default:
-                    LOG_ERROR("Invalid scheduler type");
-                    return 1;
-            }
+            MaxCQI(ue, response_data);
+
             LOG_OK("Scheduler processed UE data successfully");
 
             if (sem_post(sem_scheduler_send) == -1) {
@@ -405,108 +373,48 @@ int main(int argc, char *argv[]) {
     return 0;
 }
 
+void MaxCQI(UEData *ue_data, SchedulerResponse *response) {
+    int scheduled = 0;
+    int rb_per_ue = NUM_RB / MAX_UE_PER_TTI;
 
-int cqi_to_mcs(int cqi) {
-    /*
-        Function to convert CQI to MCS index.
-        
-        Parameters:
-            cqi: CQI value.
-        
-        Returns:
-            MCS index corresponding to the given CQI.
-    */
-    if (cqi == 1) return 0;
-    else if (cqi == 2) return 2;
-    else if (cqi == 3) return 4;
-    else if (cqi == 4) return 6;
-    else if (cqi == 5) return 8;
-    else if (cqi == 6) return 10;
-    else if (cqi == 7) return 12;
-    else if (cqi == 8) return 14;
-    else if (cqi == 9) return 16;
-    else if (cqi == 10) return 19;
-    else if (cqi == 11) return 21;
-    else if (cqi == 12) return 23;
-    else if (cqi == 13) return 24;
-    else if (cqi == 14) return 25;
-    else if (cqi == 15) return 27;
-    else return -1; // Invalid CQI
-}
-
-// Function to load TBS (Transport Block Size) table from CSV file
-void TBS_Table() {
-    /*
-        Function to load TBS (Transport Block Size) table from CSV file.
-        
-        Returns:
-            None
-    */
-    FILE *file = fopen(TBS_FILE, "r");
-    if (file == NULL) {
-        LOG_ERROR("Error opening TBS file");
-        exit(EXIT_FAILURE);
+    for (int i = 0; i < NUM_UE; i++) {
+        response[i].id = ue_data[i].id;
+        response[i].tb_size = 0;
     }
-    // Read the TBS table from the CSV file
-    char line[MAX_LINE_LENGTH];
-    int i = 0;
 
-    fgets(line, sizeof(line), file); // skip the header line
+    int scheduled_ue[NUM_UE] = {0}; // Track scheduled UEs
 
-    while (fgets(line, sizeof(line), file) && i < MAX_MCS_INDEX) {
-        char *token = strtok(line, ",");  // skip the first column
-        token = strtok(NULL, ",");
+    while(scheduled < MAX_UE_PER_TTI) {
+        int max_cqi = -1;
+        int max_idx = -1;
 
-        int j = 0;
-        while (token != NULL && j < NUM_RB) {
-            TBS[i][j] = atoi(token);
-            token = strtok(NULL, ",");
-            j++;
+        for (int i = 0; i < NUM_UE; i++) {
+            if (!scheduled_ue[i] && ue_data[i].bsr > 0 && ue_data[i].cqi > max_cqi) {
+                max_cqi = ue_data[i].cqi;
+                max_idx = i;
+            }
         }
 
-        if (j != NUM_RB) {
-            fprintf(
-                stderr, 
-                COLOR_YELLOW "[WARN ] [%s:%d] Warning: Row %d has incorrect number of columns" COLOR_RESET "\n", 
-                __FILE__, 
-                __LINE__, 
-                i
-            );
+        if (max_idx == -1) break; 
+
+        int mcs = cqi_to_mcs(max_cqi);
+        if (mcs < 0 || mcs >= MAX_MCS_INDEX) {
+            scheduled_ue[max_idx] = 1;
+            continue;
         }
 
-        i++;
-    }
+        int tb_size = TBS[mcs][rb_per_ue - 1];
+        if (tb_size <= 0) {
+            // LOG_ERROR("[WARN] TBS lỗi tại MCS=%d\n", mcs);
+            scheduled_ue[max_idx] = 1;
+            continue;
+        }
 
-    if (i != MAX_MCS_INDEX) {
-        fprintf(
-            stderr, 
-            COLOR_YELLOW "[WARN ] [%s:%d] Warning: File has incorrect number of rows" COLOR_RESET "\n", 
-            __FILE__, 
-            __LINE__
-        );
-    } else {
-        LOG_OK("TBS table loaded successfully");
-    }
+        response[max_idx].tb_size = tb_size;
+        ue_data[max_idx].bsr -= tb_size;
+        if (ue_data[max_idx].bsr < 0) ue_data[max_idx].bsr = 0;
 
-    fclose(file);
+        scheduled_ue[max_idx] = 1;
+        scheduled++;
+    }
 }
-
-void log_tbsize(FILE *log_file, int tti, SchedulerResponse *response, int num_ue) {
-    /*
-        Function to log the TB size for each UE at a given TTI.
-        
-        Parameters:
-            log_file: Pointer to the log file.
-            tti: TTI value.
-            response: Pointer to the SchedulerResponse structure.
-            num_ue: Number of UEs.
-        
-        Returns:
-            None
-    */
-    fprintf(log_file, "\n%d", tti);
-    for (int i = 0; i < num_ue; i++) {
-        fprintf(log_file, ",%d", response[i].tb_size);
-    }
-};
-

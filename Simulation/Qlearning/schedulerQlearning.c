@@ -1,41 +1,101 @@
-#include "define.h"
+#include "Simulation/define.h"
 
-#define TTI_DURATION_NS 1000000L // 1ms = 1,000,000 nanoseconds
-
+#define SIZE_OF_ACTION_SPACE 2          // Size of the action space (number of actions)
+#define SIZE_OF_STATE_SPACE 107653      // Size of the state space (number of states)
+#define GAMMA 0.9f                      // Discount factor for future rewards
+#define ALPHA 0.1f                      // Learning rate for Q-learning
+#define EPSILON 0.1f                    // Exploration rate for epsilon-greedy policy
 
 int TBS[MAX_MCS_INDEX][NUM_RB];
+int action_index;
 
-int cqi_to_mcs(int cqi);    // Mapping CQI to MCS index
-void TBS_Table();           // Load TBS table from CSV file
-void RoundRobin(UEData* ue_data, SchedulerResponse *response); // Round Robin scheduling algorithm
-void log_tbsize(FILE *log_file, int tti, SchedulerResponse *response, int num_ue);
-void MaxCQI(UEData *ue_data, SchedulerResponse *response);
-void ProportionalFair(UEData *ue_data, SchedulerResponse *response,
-                      float *avg_throughput, int *tti_since_last_sched);
+typedef struct {
+    int cqi_group[3];   // Array to hold CQI groups for each UE
+    int bsr_group[2];   // Array to hold BSR groups for each UE
+    int delay_group[3]; // Array to hold delay groups for each UE    
+} State;
+
+typedef struct {
+    float throughput;
+    float fairness;
+    float reward;
+} Reward;
+
+// Function to implement Q-learning algorithm for scheduling
+void classify_state(
+    UEData *ue, 
+    int *delay, 
+    State *state
+);
+int state_to_index(State *state); // Convert state to index
+int select_action_epsilon_greedy(
+    int state_idx, 
+    double epsilon, 
+    float (*Q_table)[SIZE_OF_ACTION_SPACE]
+);
+void schedule_by_action(
+    UEData *ue, 
+    int action_idx, 
+    SchedulerResponse *response, 
+    int *delay);
+double calculate_throughput(
+    SchedulerResponse *response, 
+    int num_ue);
+double calculate_fairness(int *ue_tbsize_allocated);
+double calculate_reward(
+    double throughput, 
+    double fairness
+);
+void update_q_table(
+    int state_idx, 
+    int action_idx, 
+    Reward *reward,
+    int next_state_idx, 
+    double alpha, 
+    double gamma, 
+    float (*Q_table)[SIZE_OF_ACTION_SPACE]
+);
+
 
 int main(int argc, char *argv[]) {
-    if (argc < 3) {
+    if (argc < 2) {
         LOG_ERROR("Missing scenario file.");
         return 1;
     }
-    const char *result_pathfile = argv[1];
-    const char *type_scheduler = argv[2];
-    enum SCHEDULER_TYPE scheduler_type;
-    if (strcmp(type_scheduler,"rr") == 0) scheduler_type = ROUND_ROBIN; // Default scheduler type
-    else if (strcmp(type_scheduler,"max_cqi") == 0) scheduler_type = MAX_CQI;
-    else if (strcmp(type_scheduler,"pf") == 0) scheduler_type = PROPORTIONAL_FAIR;
-    else if (strcmp(type_scheduler,"q_learning") == 0) scheduler_type = Q_LEARNING;
-    else {
-        LOG_ERROR("Invalid scheduler type");
+    const char *result_pathfile = argv[1];      // File path for logging results
+    int tti_now = 0, tti_last = 0;              // Current and last TTI
+    float avg_throughput[NUM_UE] = {0};         // Average throughput for each UE
+    int tti_since_last_sched[NUM_UE] = {0};     // TTI since last scheduling for each UE
+
+    State *state = (State *)malloc(sizeof(State));          // Allocate memory for the current state
+    State *state_next = (State*) malloc(sizeof(State));     // Allocate memory for the next state
+
+    Reward *reward = (Reward *)malloc(sizeof(Reward));          // Allocate memory for the reward
+
+    float (*QTable)[SIZE_OF_ACTION_SPACE] = malloc(SIZE_OF_STATE_SPACE * sizeof(*QTable));
+    if (!QTable) {
+        LOG_ERROR("Don't have enough memory for QTable");
         return 1;
+    } 
+
+    // Initialize QTable with zeros
+    for (int i = 0; i < SIZE_OF_STATE_SPACE; i++) {
+        for (int j = 0; j < SIZE_OF_ACTION_SPACE; j++) {
+            QTable[i][j] = 0.0f; // Initialize Q-table with zeros
+        }
     }
+
+    // Initialize delay array
+    int ueDelay[NUM_UE] = {0};                  // Delay for each UE
+    int ueTBSize_allocated[NUM_UE] = {0};       // Transport Block Size allocated for each UE
+
     int tti_now = 0, tti_last = 0;
-    float avg_throughput[NUM_UE] = {0};         // Trung bình tốc độ ban đầu
-            int tti_since_last_sched[NUM_UE] = {0};
+    float averageThroughput[NUM_UE] = {0};      // Average throughput for each UE
+    int tti_since_last_sched[NUM_UE] = {0};     // TTI since last scheduling for each UE
 
     // Define a timespec structure for nanosleep with a timeout of 400 microseconds
     struct timespec req_timeout = {.tv_sec = 0, .tv_nsec = 400000}; 
-
+    
     // create shared memory
     int shm_sync = shm_open(
         SHM_SYNC_TIME,      // name of the shared memory object
@@ -226,7 +286,7 @@ int main(int argc, char *argv[]) {
     // Load TBS table from CSV file
     TBS_Table();
 
-    FILE *result_file = fopen(result_pathfile, "w");
+    FILE *result_file = fopen(result_pathfile, "w"); 
     if (result_file == NULL) {
         LOG_ERROR("Error opening log file");
         return 1;
@@ -248,7 +308,6 @@ int main(int argc, char *argv[]) {
     }
     LOG_INFO("Scheduler start sync time: %s\n", format_time_str(sync->start_time_ms));
     
-
     // Loop TTI
     while (tti_now < NUM_TTI) {
         tti_now = get_elapsed_tti_frame(sync->start_time_ms);
@@ -285,24 +344,28 @@ int main(int argc, char *argv[]) {
                     LOG_OK("Semaphore for UE data posted successfully");
                 }
             }
+
+            classify_state(ue, ueDelay, state); // Chuyen du lieu tu ue thanh state
+            int state_idx = state_to_index(state); // Chuyen state thanh chi so
+            int action_idx = select_action_epsilon_greedy(state_idx, EPSILON, QTable); // Chon hanh dong theo epsilon-greed
+            schedule_by_action(ue, action_idx, response_data, ueDelay); // Chon ue theo action, update delay
+            // Update delay, tbsize_allocated
+            for (int i = 0; i < NUM_UE; i++) {
+                if (response_data[i].tb_size > 0) {
+                    ueDelay[i] = 0; // Reset delay if TB size is allocated
+                    ueTBSize_allocated[i] += response_data[i].tb_size; // Update allocated TB size
+                } else {
+                    ueDelay[i] += 1; // Increase delay if no TB size allocated
+                }
             
-            switch (scheduler_type) {
-                case ROUND_ROBIN:
-                    RoundRobin(ue, response_data);
-                    break;
-                case MAX_CQI:
-                    MaxCQI(ue, response_data);
-                    break;
-                case PROPORTIONAL_FAIR:
-                    ProportionalFair(ue, response_data, avg_throughput, tti_since_last_sched);
-                    break;
-                case Q_LEARNING:
-                    //
-                    break;
-                default:
-                    LOG_ERROR("Invalid scheduler type");
-                    return 1;
-            }
+            // Cap nhat response_data
+            reward->throughput = calculate_throughput(response_data, NUM_UE);
+            reward->fairness = calculate_fairness(ueTBSize_allocated);
+            reward->reward = calculate_reward(reward->throughput, reward->fairness)
+            classify_state(ue, delay, state_next); // Chuyen du lieu tu ue thanh state
+            int state_next_idx = state_to_index(state_next); // Chuyen next_state thanh chi s
+            update_q_table(state_idx, action_idx, reward, state_next_idx, ALPHA, GAMMA, QTable); // Cap nhat bang Q
+            
             LOG_OK("Scheduler processed UE data successfully");
 
             if (sem_post(sem_scheduler_send) == -1) {
@@ -336,6 +399,15 @@ int main(int argc, char *argv[]) {
     // Free allocated memory
     free(ue);
     ue = NULL;
+    free(state);
+    state = NULL;
+    free(state_next);
+    state_next = NULL;
+    free(reward);
+    reward = NULL;
+    free(QTable);
+    QTable = NULL;
+
     if (munmap(ue_data, sizeof(UEData) * MAX_UE) == -1) {
         LOG_ERROR("Failed to unmap ue_data");
         return 1;
@@ -407,277 +479,219 @@ int main(int argc, char *argv[]) {
 }
 
 
-int cqi_to_mcs(int cqi) {
+void classify_state(UEData *ue, int *delay, State *state) {
     /*
-        Function to convert CQI to MCS index.
+        Function to classify the state based on UE data and delay.
         
         Parameters:
-            cqi: CQI value.
-        
-        Returns:
-            MCS index corresponding to the given CQI.
-    */
-    if (cqi == 1) return 0;
-    else if (cqi == 2) return 2;
-    else if (cqi == 3) return 4;
-    else if (cqi == 4) return 6;
-    else if (cqi == 5) return 8;
-    else if (cqi == 6) return 10;
-    else if (cqi == 7) return 12;
-    else if (cqi == 8) return 14;
-    else if (cqi == 9) return 16;
-    else if (cqi == 10) return 19;
-    else if (cqi == 11) return 21;
-    else if (cqi == 12) return 23;
-    else if (cqi == 13) return 24;
-    else if (cqi == 14) return 25;
-    else if (cqi == 15) return 27;
-    else return -1; // Invalid CQI
-}
-
-// Function to load TBS (Transport Block Size) table from CSV file
-void TBS_Table() {
-    /*
-        Function to load TBS (Transport Block Size) table from CSV file.
+            ue: Pointer to the UE data.
+            delay: Pointer to the delay array.
+            state: Pointer to the State structure to be updated.
         
         Returns:
             None
     */
-    FILE *file = fopen(TBS_FILE, "r");
-    if (file == NULL) {
-        LOG_ERROR("Error opening TBS file");
-        exit(EXIT_FAILURE);
-    }
-    // Read the TBS table from the CSV file
-    char line[MAX_LINE_LENGTH];
-    int i = 0;
+    // Reset state
+    memset(state->cqi_group, 0, sizeof(state->cqi_group));
+    memset(state->bsr_group, 0, sizeof(state->bsr_group));
+    memset(state->delay_group, 0, sizeof(state->delay_group));
 
-    fgets(line, sizeof(line), file); // skip the header line
-
-    while (fgets(line, sizeof(line), file) && i < MAX_MCS_INDEX) {
-        char *token = strtok(line, ",");  // skip the first column
-        token = strtok(NULL, ",");
-
-        int j = 0;
-        while (token != NULL && j < NUM_RB) {
-            TBS[i][j] = atoi(token);
-            token = strtok(NULL, ",");
-            j++;
-        }
-
-        if (j != NUM_RB) {
-            fprintf(
-                stderr, 
-                COLOR_YELLOW "[WARN ] [%s:%d] Warning: Row %d has incorrect number of columns" COLOR_RESET "\n", 
-                __FILE__, 
-                __LINE__, 
-                i
-            );
-        }
-
-        i++;
-    }
-
-    if (i != MAX_MCS_INDEX) {
-        fprintf(
-            stderr, 
-            COLOR_YELLOW "[WARN ] [%s:%d] Warning: File has incorrect number of rows" COLOR_RESET "\n", 
-            __FILE__, 
-            __LINE__
-        );
-    } else {
-        LOG_OK("TBS table loaded successfully");
-    }
-
-    fclose(file);
-}
-
-// Function to implement Round Robin scheduling algorithm
-void RoundRobin(UEData *ue_data, SchedulerResponse *response) {
-    static int last_index = 0;      
-    int scheduled = 0;              
-    int rb_per_ue = NUM_RB / MAX_UE_PER_TTI;
-
+    // Classify CQI, BSR, delay into groups
     for (int i = 0; i < NUM_UE; i++) {
-        response[i].id = ue_data[i].id;
-        response[i].tb_size = 0;
+        int cqi_class = (ue[i].cqi <= 5) ? 0 :
+                        (ue[i].cqi <= 10) ? 1 : 2;
+        state->cqi_group[cqi_class]++;
+
+        // BSR gom thành 2 mức: 0 hoặc 1
+        int bsr_class = (ue[i].bsr > 0) ? 1 : 0; 
+        state->bsr_group[bsr_class]++;
+
+        // Delay gom thành 2 mức: <=5 → 0, >5 → 1
+        int delay_class = (delay[i] <= 15) ? 0 : 
+                          (delay[i] <= 30) ? 1 : 2;
+        state->delay_group[delay_class]++;
     }
-
-    for (int i = 0; i < NUM_UE && scheduled < MAX_UE_PER_TTI; i++) {
-        int idx = (last_index + i) % NUM_UE;
-        int cqi = ue_data[idx].cqi;
-
-        if (cqi <= 0) {
-            //printf("[WARN] UE %d có CQI=%d không hợp lệ -> Bỏ qua\n", ue_data[idx].id, cqi);
-            continue;
-        }
-
-        int mcs = cqi_to_mcs(cqi);
-        if (mcs < 0 || mcs >= MAX_MCS_INDEX) {
-            LOG_ERROR("[WARN] UE %d có MCS không hợp lệ (CQI=%d → MCS=%d) -> Bỏ qua\n", ue_data[idx].id, cqi, mcs);
-            continue;
-        }
-
-        int tb_size = TBS[mcs][rb_per_ue - 1];
-        if (tb_size <= 0) {
-            //printf("[WARN] TBS không hợp lệ tại MCS=%d, RB=%d -> Bỏ qua UE %d\n", mcs, rb_per_ue - 1, ue_data[idx].id);
-            continue;
-        }
-
-        if (ue_data[idx].bsr > 0) {
-            response[idx].id = ue_data[idx].id;
-            response[idx].tb_size = tb_size;
-
-            ue_data[idx].bsr -= tb_size;
-            if (ue_data[idx].bsr < 0)
-                ue_data[idx].bsr = 0;
-
-            scheduled++;
-        } else {
-            //printf("[INFO] UE %d có BSR=0 -> Không cấp tài nguyên\n", ue_data[idx].id);
-        }
-    }
-    last_index = (last_index + scheduled) % NUM_UE;
 }
 
-void log_tbsize(FILE *log_file, int tti, SchedulerResponse *response, int num_ue) {
-    /*
-        Function to log the TB size for each UE at a given TTI.
-        
-        Parameters:
-            log_file: Pointer to the log file.
-            tti: TTI value.
-            response: Pointer to the SchedulerResponse structure.
-            num_ue: Number of UEs.
-        
-        Returns:
-            None
-    */
-    fprintf(log_file, "\n%d", tti);
-    for (int i = 0; i < num_ue; i++) {
-        fprintf(log_file, ",%d", response[i].tb_size);
+int combination(int n, int k) {
+    if (k > n) return 0;
+    if (k == 0 || k == n) return 1;
+    int res = 1;
+    for (int i = 1; i <= k; i++) {
+        res = res * (n - i + 1) / i;
     }
-};
+    return res;
+}
 
-// Function to implement Max C/I scheduling algorithm
-void MaxCQI(UEData *ue_data, SchedulerResponse *response) {
+int group3_rank(int group[3]) {
+    int rank = 0;
+    int remain = 12;
+    for (int i = 0; i < 2; i++) {
+        for (int j = 0; j < group[i]; j++) {
+            rank += combination(remain - j + (2 - i), 2 - i);
+        }
+        remain -= group[i];
+    }
+    return rank; // từ 0 đến 90
+}
+
+// state index from 0 to 107652
+int state_to_index(State *s) {
+    int cqi_idx = group3_rank(s->cqi_group);     // [0..90]
+    int bsr_idx = s->bsr_group[1];               // [0..12]
+    int delay_idx = group3_rank(s->delay_group); // [0..90]
+
+    return (cqi_idx * 13 + bsr_idx) * 91 + delay_idx;
+} 
+
+int select_action_epsilon_greedy(int state_idx, double epsilon, float Q[][ACTION]) {
+    if ((double)rand() / RAND_MAX < epsilon) {
+        return rand() % ACTION;
+    }
+    int best_a = 0;
+    double max_q = Q[state_idx][0];
+    for (int a = 1; a < ACTION; a++) {
+        if (Q[state_idx][a] > max_q) {
+            max_q = Q[state_idx][a];
+            best_a = a;
+        }
+    }
+    return best_a;
+}
+
+void schedule_by_action(UEData *ue, int action_idx, SchedulerResponse *response, int *delay) {
     int scheduled = 0;
     int rb_per_ue = NUM_RB / MAX_UE_PER_TTI;
+    int scheduled_ue[NUM_UE] = {0}; // Đánh dấu các UE đã được lập lịch
 
+    // Khởi tạo kết quả trả về
     for (int i = 0; i < NUM_UE; i++) {
-        response[i].id = ue_data[i].id;
-        response[i].tb_size = 0;
-    }
-
-    int scheduled_ue[NUM_UE] = {0}; // Track scheduled UEs
-
-    while(scheduled < MAX_UE_PER_TTI) {
-        int max_cqi = -1;
-        int max_idx = -1;
-
-        for (int i = 0; i < NUM_UE; i++) {
-            if (!scheduled_ue[i] && ue_data[i].bsr > 0 && ue_data[i].cqi > max_cqi) {
-                max_cqi = ue_data[i].cqi;
-                max_idx = i;
-            }
-        }
-
-        if (max_idx == -1) break;  // Không còn UE hợp lệ
-
-        int mcs = cqi_to_mcs(max_cqi);
-        if (mcs < 0 || mcs >= MAX_MCS_INDEX) {
-            // printf("[WARN] MCS không hợp lệ cho CQI=%d của UE %d\n", max_cqi, ue_data[max_idx].id);
-            scheduled_ue[max_idx] = 1;
-            continue;
-        }
-
-        int tb_size = TBS[mcs][rb_per_ue - 1];
-        if (tb_size <= 0) {
-            LOG_ERROR("[WARN] TBS lỗi tại MCS=%d\n", mcs);
-            scheduled_ue[max_idx] = 1;
-            continue;
-        }
-
-        response[max_idx].tb_size = tb_size;
-        ue_data[max_idx].bsr -= tb_size;
-        if (ue_data[max_idx].bsr < 0) ue_data[max_idx].bsr = 0;
-
-        scheduled_ue[max_idx] = 1;
-        scheduled++;
-    }
-}
-
-void ProportionalFair(UEData *ue_data, SchedulerResponse *response,
-                      float *avg_throughput, int *tti_since_last_sched) {
-    int scheduled = 0;
-    int rb_per_ue = NUM_RB / MAX_UE_PER_TTI;
-
-    int scheduled_ue[NUM_UE] = {0};  // Đánh dấu ai đã được lập lịch trong TTI này
-
-    // Reset phản hồi
-    for (int i = 0; i < NUM_UE; i++) {
-        response[i].id = ue_data[i].id;
+        response[i].id = ue[i].id;
         response[i].tb_size = 0;
     }
 
     while (scheduled < MAX_UE_PER_TTI) {
-        float max_metric = -1.0;
-        int selected = -1;
+        int selected_idx = -1;
+        int max_metric = -1;
 
         for (int i = 0; i < NUM_UE; i++) {
-            if (scheduled_ue[i] || ue_data[i].bsr <= 0 || ue_data[i].cqi <= 0)
+            if (scheduled_ue[i] || ue[i].bsr <= 0)
                 continue;
 
-            int mcs = cqi_to_mcs(ue_data[i].cqi);
-            if (mcs < 0 || mcs >= MAX_MCS_INDEX) continue;
+            int metric = -1;
 
-            int tb_size = TBS[mcs][rb_per_ue - 1];
-            if (tb_size <= 0) continue;
-
-            float inst_throughput = (float)tb_size;
-            float metric;
-
-            // if (tti_since_last_sched[i] >= MAX_TTI_WITHOUT_SCHED) {
-            //     metric = 1e9;  // Ưu tiên tuyệt đối
-            // } else 
-            if (avg_throughput[i] > 0.0) {
-                metric = inst_throughput / avg_throughput[i];
-            } else {
-                metric = inst_throughput;
+            if (action_idx == 1) {
+                // Ưu tiên CQI cao nhất
+                metric = ue[i].cqi;
+            } else if (action_idx == 0) {
+                // Ưu tiên delay lớn nhất
+                metric = delay[i];
             }
 
             if (metric > max_metric) {
                 max_metric = metric;
-                selected = i;
+                selected_idx = i;
             }
         }
 
-        if (selected == -1) break;
+        if (selected_idx == -1) break; // Không còn UE phù hợp
 
-        int mcs = cqi_to_mcs(ue_data[selected].cqi);
+        int mcs = cqi_to_mcs(ue[selected_idx].cqi);
+        if (mcs < 0 || mcs >= MAX_MCS_INDEX) {
+            scheduled_ue[selected_idx] = 1;
+            continue;
+        }
+
         int tb_size = TBS[mcs][rb_per_ue - 1];
+        if (tb_size <= 0) {
+            scheduled_ue[selected_idx] = 1;
+            continue;
+        }
 
-        response[selected].tb_size = tb_size;
-        ue_data[selected].bsr -= tb_size;
-        if (ue_data[selected].bsr < 0) ue_data[selected].bsr = 0;
+        response[selected_idx].tb_size = tb_size;
+        ue[selected_idx].bsr -= tb_size;
+        if (ue[selected_idx].bsr < 0) ue[selected_idx].bsr = 0;
 
-        // Cập nhật throughput trung bình cho UE được lập lịch
-        avg_throughput[selected] = (1 - (float)1 / T_pf) * avg_throughput[selected] + (float)1 / T_pf * tb_size;
-
-        tti_since_last_sched[selected] = 0;  // Reset do được lập lịch
-        scheduled_ue[selected] = 1;
+        scheduled_ue[selected_idx] = 1;
         scheduled++;
     }
+}
 
-    for (int i = 0; i < NUM_UE; i++) {
-        if (!scheduled_ue[i]) {
-            tti_since_last_sched[i]++;
-            avg_throughput[i] = (1 - (float)1 / T_pf) * avg_throughput[i];  // Giảm trung bình theo thời gian
+// calculate throughput function
+double calculate_throughput(SchedulerResponse *response, int num_ue) {
+    /*
+        Function to calculate the throughput based on the UE data.
+        
+        Parameters:
+            ue: Pointer to the UE data.
+            num_ue: Number of UEs.
+        
+        Returns:
+            Total throughput as a double value.
+    */
+    double total_throughput = 0.0;
+    for (int i = 0; i < num_ue; i++) {
+        if (response[i].tb_size > 0) {
+            total_throughput += response[i].tb_size; // Assuming tb_size is in bits
         }
     }
-
-    // print tti_since_last_sched and avg_throughput
-    // for (int i = 0; i < NUM_UE; i++) {
-    //     printf("UE %d: TSLS=%d, AvgThroughput=%.2f\n", ue_data[i].id, tti_since_last_sched[i], avg_throughput[i]);
-    // }
+    return total_throughput;
 }
+
+
+double calculate_fairness(int ue_tbsize_allocated[NUM_UE]) {    
+    /*
+        Function to calculate the fairness index based on the allocated TB sizes.
+        
+        Parameters:
+            ue_tbsize_allocated: Array containing the allocated TB sizes for each UE.
+        
+        Returns:
+            Fairness index as a double value.
+    */
+    double sum = 0, sum_sq = 0;
+    for (int i = 0; i < NUM_UE; i++) {
+        sum += ue_tbsize_allocated[i];         // tổng RB
+        sum_sq += pow(ue_tbsize_allocated[i],2);    // tổng bình phương
+    }
+    return (pow(sum,2)) / (NUM_UE * sum_sq);
+}
+
+double calculate_reward(double throughput, double fairness) {
+    /*
+        Function to calculate the reward based on throughput and fairness.
+        
+        Parameters:
+            throughput: Total throughput.
+            fairness: Fairness index.
+        
+        Returns:
+            Calculated reward as a double value.
+    */
+    return 0.5 * throughput + 0.5 * fairness; // Reward is the product of throughput and fairness
+}
+
+
+void update_q_table(int state_idx, int action_idx, Reward *reward, int next_state_idx, double alpha, double gamma, float (*Q_table)[ACTION]) {
+    /*
+        Function to update the Q-table based on the current state, action, reward, and next state.
+        
+        Parameters:
+            state: Pointer to the current state.
+            action: Pointer to the action taken.
+            reward: Pointer to the reward received.
+            next_state: Pointer to the next state after taking the action.
+            alpha: Learning rate.
+            gamma: Discount factor.
+        
+        Returns:
+            None
+    */
+    double max_q_next = Q_table[next_state_idx][0];
+    for (int i = 1; i < ACTION; i++) {
+        if (Q_table[next_state_idx][i] > max_q_next)
+            max_q_next = Q_table[next_state_idx][i];
+    }
+    Q_table[state_idx][action_idx] += alpha * (reward->reward + gamma * max_q_next - Q_table[state_idx][action_idx]);
+}
+
