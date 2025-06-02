@@ -1,101 +1,50 @@
-#include "Simulation/define.h"
+#include "../define.h"
+#include "DQL.c"
 
-#define SIZE_OF_ACTION_SPACE 2          // Size of the action space (number of actions)
-#define SIZE_OF_STATE_SPACE 107653      // Size of the state space (number of states)
-#define GAMMA 0.9f                      // Discount factor for future rewards
-#define ALPHA 0.1f                      // Learning rate for Q-learning
-#define EPSILON 0.1f                    // Exploration rate for epsilon-greedy policy
+#define TTI_DURATION_NS 1000000L // 1ms = 1,000,000 nanoseconds
+
 
 int TBS[MAX_MCS_INDEX][NUM_RB];
-int action_index;
 
-typedef struct {
-    int cqi_group[3];   // Array to hold CQI groups for each UE
-    int bsr_group[2];   // Array to hold BSR groups for each UE
-    int delay_group[3]; // Array to hold delay groups for each UE    
-} State;
-
-typedef struct {
-    float throughput;
-    float fairness;
-    float reward;
-} Reward;
-
-// Function to implement Q-learning algorithm for scheduling
-void classify_state(
-    UEData *ue, 
-    int *delay, 
-    State *state
-);
-int state_to_index(State *state); // Convert state to index
-int select_action_epsilon_greedy(
-    int state_idx, 
-    double epsilon, 
-    float (*Q_table)[SIZE_OF_ACTION_SPACE]
-);
-void schedule_by_action(
-    UEData *ue, 
-    int action_idx, 
-    SchedulerResponse *response, 
-    int *delay);
-double calculate_throughput(
-    SchedulerResponse *response, 
-    int num_ue);
-double calculate_fairness(int *ue_tbsize_allocated);
-double calculate_reward(
-    double throughput, 
-    double fairness
-);
-void update_q_table(
-    int state_idx, 
-    int action_idx, 
-    Reward *reward,
-    int next_state_idx, 
-    double alpha, 
-    double gamma, 
-    float (*Q_table)[SIZE_OF_ACTION_SPACE]
-);
-
+int cqi_to_mcs(int cqi);    // Mapping CQI to MCS index
+void TBS_Table();           // Load TBS table from CSV file
+void log_tbsize(FILE *log_file, int tti, SchedulerResponse *response, int num_ue);
 
 int main(int argc, char *argv[]) {
     if (argc < 2) {
         LOG_ERROR("Missing scenario file.");
         return 1;
     }
-    const char *result_pathfile = argv[1];      // File path for logging results
-    int tti_now = 0, tti_last = 0;              // Current and last TTI
-    float avg_throughput[NUM_UE] = {0};         // Average throughput for each UE
-    int tti_since_last_sched[NUM_UE] = {0};     // TTI since last scheduling for each UE
+    const char *result_pathfile = argv[1];
 
-    State *state = (State *)malloc(sizeof(State));          // Allocate memory for the current state
-    State *state_next = (State*) malloc(sizeof(State));     // Allocate memory for the next state
+    ReplayBuffer rb;
+    init_replay_buffer(&rb, REPLAY_BUFFER_SIZE);
 
-    Reward *reward = (Reward *)malloc(sizeof(Reward));          // Allocate memory for the reward
-
-    float (*QTable)[SIZE_OF_ACTION_SPACE] = malloc(SIZE_OF_STATE_SPACE * sizeof(*QTable));
-    if (!QTable) {
-        LOG_ERROR("Don't have enough memory for QTable");
-        return 1;
-    } 
-
-    // Initialize QTable with zeros
-    for (int i = 0; i < SIZE_OF_STATE_SPACE; i++) {
-        for (int j = 0; j < SIZE_OF_ACTION_SPACE; j++) {
-            QTable[i][j] = 0.0f; // Initialize Q-table with zeros
-        }
-    }
-
-    // Initialize delay array
-    int ueDelay[NUM_UE] = {0};                  // Delay for each UE
-    int ueTBSize_allocated[NUM_UE] = {0};       // Transport Block Size allocated for each UE
+// Biến phụ trợ
+    float epsilon = 1.0f;
+    const float epsilon_min = 0.05f;
+    const float decay_rate = 0.0005f;
+    int delay[NUM_UE] = {0};
+    int cumulative_tput[NUM_UE] = {0}; // để tính Jain index
 
     int tti_now = 0, tti_last = 0;
-    float averageThroughput[NUM_UE] = {0};      // Average throughput for each UE
-    int tti_since_last_sched[NUM_UE] = {0};     // TTI since last scheduling for each UE
+
+    // Mạng DQN
+    NeuralNet net, target_net;
+    if (PROCESS == 1){
+        if (!load_model("./model/dqn_model.bin", &net)) {
+            LOG_INFO("Cannot find model, initialze\n");
+            init_net(&net);
+        }
+        epsilon = 0.25f; 
+    }
+    copy_network(&target_net, &net);
+
+    // Replay buffer
 
     // Define a timespec structure for nanosleep with a timeout of 400 microseconds
     struct timespec req_timeout = {.tv_sec = 0, .tv_nsec = 400000}; 
-    
+
     // create shared memory
     int shm_sync = shm_open(
         SHM_SYNC_TIME,      // name of the shared memory object
@@ -286,7 +235,7 @@ int main(int argc, char *argv[]) {
     // Load TBS table from CSV file
     TBS_Table();
 
-    FILE *result_file = fopen(result_pathfile, "w"); 
+    FILE *result_file = fopen(result_pathfile, "w");
     if (result_file == NULL) {
         LOG_ERROR("Error opening log file");
         return 1;
@@ -297,6 +246,19 @@ int main(int argc, char *argv[]) {
     for (int i = 0; i < NUM_UE; i++) {
         fprintf(result_file, ",UE%d", i);
     }
+
+    FILE *reward_log = NULL;
+    if (PROCESS == 0) {
+        reward_log = fopen("./result/reward_log_prev.csv", "w");
+    } else {
+        reward_log = fopen("./result/reward_log.csv", "w");
+    }
+    if (!reward_log) {
+        LOG_ERROR("Không thể mở file reward_log.csv");
+        exit(EXIT_FAILURE);
+    }
+    fprintf(reward_log, "TTI,Reward,Epsilon\n"); // header
+
 
     LOG_OK("Ready...");
 
@@ -345,27 +307,113 @@ int main(int argc, char *argv[]) {
                 }
             }
 
-            classify_state(ue, ueDelay, state); // Chuyen du lieu tu ue thanh state
-            int state_idx = state_to_index(state); // Chuyen state thanh chi so
-            int action_idx = select_action_epsilon_greedy(state_idx, EPSILON, QTable); // Chon hanh dong theo epsilon-greed
-            schedule_by_action(ue, action_idx, response_data, ueDelay); // Chon ue theo action, update delay
-            // Update delay, tbsize_allocated
+// ------------------------- Q Learning ---------------------------------
+            // 1. Chuẩn hóa trạng thái hiện tại
+            float state[INPUT_SIZE];
+            for (int i = 0; i < NUM_UE; i++) {
+                state[i*3 + 0] = ue[i].cqi / 15.0f;                     
+                state[i*3 + 1] = fminf(ue[i].bsr, 18960) / 18960.0f; 
+                state[i*3 + 2] = fminf(delay[i], 20.0f) / 20.0f; 
+            }
+            // printf("State: ");
+            // for (int i = 0; i < INPUT_SIZE; i++) {
+            //     printf("%.4f ", state[i]);
+            // }
+            // printf("\n");
+
+            // 2. Inference
+            float hidden[HIDDEN_SIZE], q_values[OUTPUT_SIZE];
+            forward(&net, state, hidden, q_values);
+
+            // 3. Chọn hành động theo epsilon-greedy
+            int action_idx = epsilon_greedy_action(q_values, epsilon, ue);
+            // printf("Action index chosen: %d\n", action_idx);
+            int selected_ue[4];
+            index_to_ue_combination(action_idx, selected_ue);
+
+            // 4. Gán TBSize và tính throughput
+            // SchedulerResponse response_data[NUM_UE];
+            for (int i = 0; i < NUM_UE; i++) {
+                response_data[i].id = ue[i].id;
+                response_data[i].tb_size = 0;
+            }
+            for (int i = 0; i < 4; i++) {
+                int idx = selected_ue[i];
+                int mcs = cqi_to_mcs(ue[idx].cqi);
+                response_data[idx].tb_size = TBS[mcs][NUM_RB_PER_UE - 1];
+            }
+            // update delay, cumulative_tput, bsr
             for (int i = 0; i < NUM_UE; i++) {
                 if (response_data[i].tb_size > 0) {
-                    ueDelay[i] = 0; // Reset delay if TB size is allocated
-                    ueTBSize_allocated[i] += response_data[i].tb_size; // Update allocated TB size
+                    delay[i] = 0; 
+                    // cumulative_tput[i] += response_data[i].tb_size;
+                    ue[i].bsr -= response_data[i].tb_size;
+                    if (ue[i].bsr < 0) {
+                        ue[i].bsr = 0;
+                    }
                 } else {
-                    ueDelay[i] += 1; // Increase delay if no TB size allocated
+                    delay[i] += SUBFRAME_DURATION; // tăng delay nếu không được cấp phát TBSize
                 }
-            
-            // Cap nhat response_data
-            reward->throughput = calculate_throughput(response_data, NUM_UE);
-            reward->fairness = calculate_fairness(ueTBSize_allocated);
-            reward->reward = calculate_reward(reward->throughput, reward->fairness)
-            classify_state(ue, delay, state_next); // Chuyen du lieu tu ue thanh state
-            int state_next_idx = state_to_index(state_next); // Chuyen next_state thanh chi s
-            update_q_table(state_idx, action_idx, reward, state_next_idx, ALPHA, GAMMA, QTable); // Cap nhat bang Q
-            
+            }
+
+            // 5. Tính phần thưởng
+            float reward = compute_reward(response_data, cumulative_tput, NUM_UE, delay);
+
+            // print response_data, delay, cumulative_tput, ...
+            // printf("Response Data:\n");
+            // for (int i = 0; i < NUM_UE; i++) {
+            //     printf("UE %d: TBSize=%d, Delay=%d, Cumulative Tput=%d\n", 
+            //         response_data[i].id, response_data[i].tb_size, delay[i], cumulative_tput[i]);
+            // }
+            // printf("Reward: %.4f\n", reward);
+            // printf("Cumulative Throughput:\n");
+            // for (int i = 0; i < NUM_UE; i++) {
+            //     printf("UE %d: Cumulative Tput=%d\n", ue[i].id, cumulative_tput[i]);
+            // }
+            // printf("Delay:\n");
+            // for (int i = 0; i < NUM_UE; i++) {
+            //     printf("UE %d: Delay=%d\n", ue[i].id, delay[i]);
+            // }
+            // 6. Chuẩn hóa next_state
+            float next_state[INPUT_SIZE];
+            for (int i = 0; i < NUM_UE; i++) {
+                next_state[i*3 + 0] = ue[i].cqi / 15.0f;                     
+                next_state[i*3 + 1] = fminf(ue[i].bsr, 18960) / 18960.0f; 
+                next_state[i*3 + 2] = fminf(delay[i], 20.0f) / 20.0f; 
+            }
+
+            // 7. Tạo và lưu transition
+            Transition t;
+            memcpy(t.state, state, sizeof(float) * INPUT_SIZE);
+            t.action_index = action_idx;
+            t.reward = reward;
+            memcpy(t.next_state, next_state, sizeof(float) * INPUT_SIZE);
+            t.done = (tti_now == NUM_TTI);
+            add_transition(&rb, t);
+
+            // 8. Huấn luyện nếu đủ dữ liệu
+            Transition batch[BATCH_SIZE];
+            if (sample_batch(&rb, batch, BATCH_SIZE)) {
+                train_once(&net, &target_net, batch, BATCH_SIZE, 0.99f); // γ = 0.99
+                if (tti_now % TARGET_UPDATE_INTERVAL == 0) {
+                    copy_network(&target_net, &net);
+                }
+            }
+
+            // 9. Giảm epsilon
+            // epsilon = fmaxf(epsilon_min, epsilon * expf(-decay_rate * tti_now));
+            if (PROCESS == 0){
+                if (tti_now < 3000) {
+                    epsilon = 1.0f;
+                } else if (tti_now < 15000) {
+                    float progress = (float)(tti_now - 3000) / 12000.0f;
+                    epsilon = 1.0f - 0.75f * progress;  // Giảm từ 1.0 → 0.25
+                } else {
+                    epsilon = 0.25f;  // Giữ exploration 25%
+                }
+            }
+
+            fprintf(reward_log, "%d,%.4f,%.4f\n", tti_now, reward, epsilon);
             LOG_OK("Scheduler processed UE data successfully");
 
             if (sem_post(sem_scheduler_send) == -1) {
@@ -393,20 +441,49 @@ int main(int argc, char *argv[]) {
             }
 
             tti_last = tti_now;
+            printf("TTI: %d\n", tti_now);
         }
     }
 
+    // log file replaybuffer
+    FILE *replay_buffer_file = fopen("./result/replay_buffer.csv", "w");
+    if (replay_buffer_file == NULL) {
+        LOG_ERROR("Error opening replay buffer log file");
+        return 1;
+    } else {
+        LOG_OK("Replay buffer log file opened successfully");
+    }
+    fprintf(replay_buffer_file, "State,Action,Reward,Next_State,Done\n");
+    for (int i = 0; i < rb.size; i++) {
+        Transition t = rb.buffer[i];
+        fprintf(replay_buffer_file, 
+            "%s,%d,%.4f,%s,%d\n", 
+            state_to_string(t.state), 
+            t.action_index, 
+            t.reward, 
+            state_to_string(t.next_state), 
+            t.done
+        );
+    }
+
+    if (PROCESS == 0) {
+        save_model("./model/dqn_model.bin", &net);
+    }
+
+    // export_q_table("./result/q_table.csv", Q_table);
     // Free allocated memory
     free(ue);
     ue = NULL;
-    free(state);
-    state = NULL;
-    free(state_next);
-    state_next = NULL;
-    free(reward);
-    reward = NULL;
-    free(QTable);
-    QTable = NULL;
+    // free(state);
+    // state = NULL;
+    // free(state_next);
+    // state_next = NULL;
+    // free(reward);
+    // reward = NULL;
+    // free(Q_table);
+    // Q_table = NULL;
+    // fclose(reward_log);
+
 
     if (munmap(ue_data, sizeof(UEData) * MAX_UE) == -1) {
         LOG_ERROR("Failed to unmap ue_data");
@@ -477,221 +554,3 @@ int main(int argc, char *argv[]) {
     
     return 0;
 }
-
-
-void classify_state(UEData *ue, int *delay, State *state) {
-    /*
-        Function to classify the state based on UE data and delay.
-        
-        Parameters:
-            ue: Pointer to the UE data.
-            delay: Pointer to the delay array.
-            state: Pointer to the State structure to be updated.
-        
-        Returns:
-            None
-    */
-    // Reset state
-    memset(state->cqi_group, 0, sizeof(state->cqi_group));
-    memset(state->bsr_group, 0, sizeof(state->bsr_group));
-    memset(state->delay_group, 0, sizeof(state->delay_group));
-
-    // Classify CQI, BSR, delay into groups
-    for (int i = 0; i < NUM_UE; i++) {
-        int cqi_class = (ue[i].cqi <= 5) ? 0 :
-                        (ue[i].cqi <= 10) ? 1 : 2;
-        state->cqi_group[cqi_class]++;
-
-        // BSR gom thành 2 mức: 0 hoặc 1
-        int bsr_class = (ue[i].bsr > 0) ? 1 : 0; 
-        state->bsr_group[bsr_class]++;
-
-        // Delay gom thành 2 mức: <=5 → 0, >5 → 1
-        int delay_class = (delay[i] <= 15) ? 0 : 
-                          (delay[i] <= 30) ? 1 : 2;
-        state->delay_group[delay_class]++;
-    }
-}
-
-int combination(int n, int k) {
-    if (k > n) return 0;
-    if (k == 0 || k == n) return 1;
-    int res = 1;
-    for (int i = 1; i <= k; i++) {
-        res = res * (n - i + 1) / i;
-    }
-    return res;
-}
-
-int group3_rank(int group[3]) {
-    int rank = 0;
-    int remain = 12;
-    for (int i = 0; i < 2; i++) {
-        for (int j = 0; j < group[i]; j++) {
-            rank += combination(remain - j + (2 - i), 2 - i);
-        }
-        remain -= group[i];
-    }
-    return rank; // từ 0 đến 90
-}
-
-// state index from 0 to 107652
-int state_to_index(State *s) {
-    int cqi_idx = group3_rank(s->cqi_group);     // [0..90]
-    int bsr_idx = s->bsr_group[1];               // [0..12]
-    int delay_idx = group3_rank(s->delay_group); // [0..90]
-
-    return (cqi_idx * 13 + bsr_idx) * 91 + delay_idx;
-} 
-
-int select_action_epsilon_greedy(int state_idx, double epsilon, float Q[][ACTION]) {
-    if ((double)rand() / RAND_MAX < epsilon) {
-        return rand() % ACTION;
-    }
-    int best_a = 0;
-    double max_q = Q[state_idx][0];
-    for (int a = 1; a < ACTION; a++) {
-        if (Q[state_idx][a] > max_q) {
-            max_q = Q[state_idx][a];
-            best_a = a;
-        }
-    }
-    return best_a;
-}
-
-void schedule_by_action(UEData *ue, int action_idx, SchedulerResponse *response, int *delay) {
-    int scheduled = 0;
-    int rb_per_ue = NUM_RB / MAX_UE_PER_TTI;
-    int scheduled_ue[NUM_UE] = {0}; // Đánh dấu các UE đã được lập lịch
-
-    // Khởi tạo kết quả trả về
-    for (int i = 0; i < NUM_UE; i++) {
-        response[i].id = ue[i].id;
-        response[i].tb_size = 0;
-    }
-
-    while (scheduled < MAX_UE_PER_TTI) {
-        int selected_idx = -1;
-        int max_metric = -1;
-
-        for (int i = 0; i < NUM_UE; i++) {
-            if (scheduled_ue[i] || ue[i].bsr <= 0)
-                continue;
-
-            int metric = -1;
-
-            if (action_idx == 1) {
-                // Ưu tiên CQI cao nhất
-                metric = ue[i].cqi;
-            } else if (action_idx == 0) {
-                // Ưu tiên delay lớn nhất
-                metric = delay[i];
-            }
-
-            if (metric > max_metric) {
-                max_metric = metric;
-                selected_idx = i;
-            }
-        }
-
-        if (selected_idx == -1) break; // Không còn UE phù hợp
-
-        int mcs = cqi_to_mcs(ue[selected_idx].cqi);
-        if (mcs < 0 || mcs >= MAX_MCS_INDEX) {
-            scheduled_ue[selected_idx] = 1;
-            continue;
-        }
-
-        int tb_size = TBS[mcs][rb_per_ue - 1];
-        if (tb_size <= 0) {
-            scheduled_ue[selected_idx] = 1;
-            continue;
-        }
-
-        response[selected_idx].tb_size = tb_size;
-        ue[selected_idx].bsr -= tb_size;
-        if (ue[selected_idx].bsr < 0) ue[selected_idx].bsr = 0;
-
-        scheduled_ue[selected_idx] = 1;
-        scheduled++;
-    }
-}
-
-// calculate throughput function
-double calculate_throughput(SchedulerResponse *response, int num_ue) {
-    /*
-        Function to calculate the throughput based on the UE data.
-        
-        Parameters:
-            ue: Pointer to the UE data.
-            num_ue: Number of UEs.
-        
-        Returns:
-            Total throughput as a double value.
-    */
-    double total_throughput = 0.0;
-    for (int i = 0; i < num_ue; i++) {
-        if (response[i].tb_size > 0) {
-            total_throughput += response[i].tb_size; // Assuming tb_size is in bits
-        }
-    }
-    return total_throughput;
-}
-
-
-double calculate_fairness(int ue_tbsize_allocated[NUM_UE]) {    
-    /*
-        Function to calculate the fairness index based on the allocated TB sizes.
-        
-        Parameters:
-            ue_tbsize_allocated: Array containing the allocated TB sizes for each UE.
-        
-        Returns:
-            Fairness index as a double value.
-    */
-    double sum = 0, sum_sq = 0;
-    for (int i = 0; i < NUM_UE; i++) {
-        sum += ue_tbsize_allocated[i];         // tổng RB
-        sum_sq += pow(ue_tbsize_allocated[i],2);    // tổng bình phương
-    }
-    return (pow(sum,2)) / (NUM_UE * sum_sq);
-}
-
-double calculate_reward(double throughput, double fairness) {
-    /*
-        Function to calculate the reward based on throughput and fairness.
-        
-        Parameters:
-            throughput: Total throughput.
-            fairness: Fairness index.
-        
-        Returns:
-            Calculated reward as a double value.
-    */
-    return 0.5 * throughput + 0.5 * fairness; // Reward is the product of throughput and fairness
-}
-
-
-void update_q_table(int state_idx, int action_idx, Reward *reward, int next_state_idx, double alpha, double gamma, float (*Q_table)[ACTION]) {
-    /*
-        Function to update the Q-table based on the current state, action, reward, and next state.
-        
-        Parameters:
-            state: Pointer to the current state.
-            action: Pointer to the action taken.
-            reward: Pointer to the reward received.
-            next_state: Pointer to the next state after taking the action.
-            alpha: Learning rate.
-            gamma: Discount factor.
-        
-        Returns:
-            None
-    */
-    double max_q_next = Q_table[next_state_idx][0];
-    for (int i = 1; i < ACTION; i++) {
-        if (Q_table[next_state_idx][i] > max_q_next)
-            max_q_next = Q_table[next_state_idx][i];
-    }
-    Q_table[state_idx][action_idx] += alpha * (reward->reward + gamma * max_q_next - Q_table[state_idx][action_idx]);
-}
-

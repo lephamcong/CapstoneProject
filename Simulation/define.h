@@ -19,23 +19,40 @@
 #define HEADERFILE_H // header guard
 
 /*-----------------------------------------------------------------------*/
-// Config for the simulation
-#define ENABLE_LOG 0                // Enable or disable logging
-#define TBS_FILE "Simulation/TBSArray.csv"   // Path to the TBS (Transport Block Size) CSV file
+// Config here
+#define PROCESS 1
+// Only for Deep Q Learning : 0 train, 1 test
+
+#define TIME_FRAME 20
+#define ENABLE_LOG 0
+#define TBS_FILE "../TBSArray.csv"
+// #define CQI_FILE "/home/kaonashi/CapstoneProject/CapstoneProject/gen_cqi/cqi_ideal_condition.csv"
+// #define BSR_FILE "/home/kaonashi/CapstoneProject/CapstoneProject/gen_cqi/bsr_ideal_condition.csv"
+// #define LOG_FILE "/home/kaonashi/CapstoneProject/CapstoneProject/ideal_condition/log_TBS_cqi.csv"
+
+enum SCHEDULER_TYPE {
+    ROUND_ROBIN,
+    MAX_CQI,
+    PROPORTIONAL_FAIR,
+    Q_LEARNING
+};
+
 
 /*-----------------------------------------------------------------------*/
-// Config for logging 
-#define COLOR_RESET    "\033[0m"        // Reset color 
-#define COLOR_RED      "\033[1;31m"     // Red color for errors
-#define COLOR_YELLOW   "\033[1;33m"     // Yellow color for warnings
-#define COLOR_GREEN    "\033[1;32m"     // Green color for success messages
-#define COLOR_BLUE     "\033[1;34m"     // Blue color for informational messages
+// ANSI color codes
+#define COLOR_RESET    "\033[0m"
+#define COLOR_RED      "\033[1;31m"
+#define COLOR_YELLOW   "\033[1;33m"
+#define COLOR_GREEN    "\033[1;32m"
+#define COLOR_BLUE     "\033[1;34m"
+/*-----------------------------------------------------------------------*/
 // Macros for logging
 #if ENABLE_LOG
-#define LOG_ERROR(fmt, ...) fprintf(stderr, COLOR_RED    "[ERROR] [%s:%d] " fmt COLOR_RESET "\n", __FILE__, __LINE__, ##__VA_ARGS__)    // Log error messages 
-#define LOG_WARN(fmt, ...)  fprintf(stderr, COLOR_YELLOW "[WARN ] [%s:%d] " fmt COLOR_RESET "\n", __FILE__, __LINE__, ##__VA_ARGS__)    // Log warning messages
-#define LOG_INFO(fmt, ...)  fprintf(stdout, COLOR_BLUE   "[INFO ] [%s:%d] " fmt COLOR_RESET "\n", __FILE__, __LINE__, ##__VA_ARGS__)    // Log informational messages
-#define LOG_OK(fmt, ...)    fprintf(stdout, COLOR_GREEN  "[ OK  ] [%s:%d] " fmt COLOR_RESET "\n", __FILE__, __LINE__, ##__VA_ARGS__)    // Log success messages
+#define LOG_ERROR(fmt, ...) fprintf(stderr, COLOR_RED    "[ERROR] [%s:%d] " fmt COLOR_RESET "\n", __FILE__, __LINE__, ##__VA_ARGS__)
+#define LOG_WARN(fmt, ...)  fprintf(stderr, COLOR_YELLOW "[WARN ] [%s:%d] " fmt COLOR_RESET "\n", __FILE__, __LINE__, ##__VA_ARGS__)
+#define LOG_INFO(fmt, ...)  fprintf(stdout, COLOR_BLUE   "[INFO ] [%s:%d] " fmt COLOR_RESET "\n", __FILE__, __LINE__, ##__VA_ARGS__)
+#define LOG_OK(fmt, ...)    fprintf(stdout, COLOR_GREEN  "[ OK  ] [%s:%d] " fmt COLOR_RESET "\n", __FILE__, __LINE__, ##__VA_ARGS__)
+
 #else
 #define LOG_ERROR(fmt, ...) fprintf(stderr, COLOR_RED    "[ERROR] [%s:%d] " fmt COLOR_RESET "\n", __FILE__, __LINE__, ##__VA_ARGS__)
 #define LOG_WARN(fmt, ...)
@@ -44,45 +61,49 @@
 #endif
 /*-----------------------------------------------------------------------*/
 // Define arguments for MAC Scheduler
-#define NUM_UE 12                   // Number of User Equipment (UE)
-#define NUM_RB 100                  // Number of Resource Blocks (RB)
-#define MAX_MCS_INDEX 28            // Maximum Modulation and Coding Scheme (MCS) index
-#define NUM_LAYER 1                 // Number of layers for MIMO (Multiple Input Multiple Output)   
-#define MAX_UE_PER_TTI 4            // Maximum number of UEs that can be scheduled in a TTI (Transmission Time Interval)
-#define SUBFRAME_DURATION 1         // Duration of a subframe in milliseconds (ms)
-#define NUM_TTI 10000               // Total number of TTIs (Transmission Time Intervals) to simulate
-#define NUM_TTI_RESEND 10           // Number of TTIs after which UE data is resent
-#define TIME_FRAME 1                // Time frame in milliseconds (ms) for each TTI
-#define MAX_UE 12                                   // Maximum number of UEs in the system  
-#define TTI_PERIOD_NS 1000000L // 1ms               // TTI period in nanoseconds (ns)
-#define TTI_DURATION_NS 1000000L // 1ms = 1,000,000 nanoseconds
+#define NUM_UE 12
+#define NUM_RB 100
+#define NUM_RB_PER_UE 25
+#define MAX_MCS_INDEX 28
+#define NUM_LAYER 1
+#define MAX_UE_PER_TTI 4
+#define SUBFRAME_DURATION 1
+
+#if PROCESS == 1
+#define NUM_TTI 10000
+#else 
+#define NUM_TTI 20000
+#endif
+
+#define NUM_TTI_RESEND 10
 /*-----------------------------------------------------------------------*/
 // Define shared memory and semaphore names
-#define SHM_CQI_BSR         "/shm_cqi_bsr"          // Shared memory for CQI and BSR (Buffer Status Report)
-#define SHM_DCI             "/shm_dci"              // Shared memory for DCI (Downlink Control Information)
-#define SHM_SYNC_TIME       "/shm_sync_time"        // Shared memory for synchronization time
-#define SEM_UE_SEND         "/sem_ue_send"          // Semaphore for UE data sending
-#define SEM_UE_RECV         "/sem_ue_recv"          // Semaphore for UE data receiving
-#define SEM_SCHEDULER_SEND  "/sem_scheduler_send"   // Semaphore for Scheduler response sending
-#define SEM_SCHEDULER_RECV  "/sem_scheduler_recv"   // Semaphore for Scheduler response receiving
-#define SEM_SYNC            "/sem_sync"             // Semaphore for synchronization
+#define SHM_CQI_BSR   "/shm_cqi_bsr"
+#define SHM_DCI       "/shm_dci"
+#define SHM_SYNC_TIME "/shm_sync_time"
+#define SEM_UE_SEND       "/sem_ue_send"
+#define SEM_UE_RECV       "/sem_ue_recv"
+#define SEM_SCHEDULER_SEND "/sem_scheduler_send"
+#define SEM_SCHEDULER_RECV "/sem_scheduler_recv"
+#define SEM_SYNC      "/sem_sync"
+#define MAX_UE 12
+#define TTI_PERIOD_NS 1000000L // 1ms
 /*-----------------------------------------------------------------------*/
 // Define structures for UE data and transport information
 typedef struct {
-    int id;     // UE ID
-    int cqi;    // Channel Quality Indicator
-    int bsr;    // Buffer Status Report
+    int id;
+    int cqi;
+    int bsr;
 } UEData;
-
 // Define structure for Scheduler response
 typedef struct {
-    int id;         // UE ID    
-    int tb_size;    // Transport Block Size
+    int id;
+    int tb_size;
 } SchedulerResponse;
 
 // define structure for Sync time
 typedef struct {
-    long start_time_ms; // Start time in milliseconds (ms)
+    long start_time_ms;
 } SyncTime;
 
 /*-----------------------------------------------------------------------*/
@@ -99,13 +120,6 @@ _a < _b ? _a : _b; })
 
 // Function to format time as a string
 static inline const char* format_time_str(long time) {
-    /*
-        Function to format time in milliseconds (ms) to a string.
-        Parameters:
-            time: Time in milliseconds (ms).
-        Returns:
-            Formatted time string in the format "YYYY-MM-DD HH:MM:SS".
-    */
     time_t t = time / 1000;
     struct tm* timeinfo = localtime(&t);
     static char time_str[20];
@@ -196,6 +210,7 @@ static inline int cqi_to_mcs(int cqi) {
 #define MAX_LINE_LENGTH 1024    // Maximum length of a line in the CSV file
 #define MAX_COLUMNS 1000        // Maximum number of columns in the CSV file
 
+int TBS[MAX_MCS_INDEX][NUM_RB];
 // Function to load TBS (Transport Block Size) table from CSV file
 static inline void TBS_Table() {
     /*
@@ -279,10 +294,7 @@ static inline void log_tbsize(
 
 /*-----------------------------------------------------------------------*/
 // Function to write data to a CSV file
-static inline void write_csv(
-    const char *filename,   // Name of the CSV file. 
-    const char *data        // Data to be written to the CSV file.
-) {
+static inline void write_csv(const char *filename, const char *data) {
     /*
         Function to write data to a CSV file.
         
@@ -299,6 +311,7 @@ static inline void write_csv(
     fclose(file);
 }
 // Function to read data from a CSV file
+#define MAX_LINE_LENGTH 1024
 
 static inline void read_csv(const char *filename) {
     /*
