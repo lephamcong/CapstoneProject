@@ -1,4 +1,4 @@
-#include "Simulation/define.h"
+#include "define.h"
 
 int main(){
     // Unlink shared memory and semaphores

@@ -2,7 +2,7 @@ import csv
 import random
 import math
 
-NUM_TTI = 10000
+NUM_TTI = 20000
 NUM_UE = 12
 
 def write_dual_scenario(base_name, cqi_matrix, bsr_matrix):
@@ -124,10 +124,10 @@ def scenario_idal_condition_bsr100000():
     return cqi, bsr
 # ================= VIẾT RA FILE ===================
 random.seed(42) 
-write_dual_scenario("high_traffic", *scenario_high_traffic())
-write_dual_scenario("low_traffic", *scenario_low_traffic())
-write_dual_scenario("burst_traffic", *scenario_burst_traffic())
-write_dual_scenario("mobility_pattern", *scenario_mobility_pattern())
-write_dual_scenario("ideal_condition", *scenario_ideal_condition())
-write_dual_scenario("ideal_condition_bsr10000", *scenario_ideal_condition_bsr10000())
+# write_dual_scenario("high_traffic", *scenario_high_traffic())
+# write_dual_scenario("low_traffic", *scenario_low_traffic())
+# write_dual_scenario("burst_traffic", *scenario_burst_traffic())
+# write_dual_scenario("mobility_pattern", *scenario_mobility_pattern())
+# write_dual_scenario("ideal_condition", *scenario_ideal_condition())
+# write_dual_scenario("ideal_condition_bsr10000", *scenario_ideal_condition_bsr10000())
 write_dual_scenario("ideal_condition_bsr100000", *scenario_idal_condition_bsr100000())

@@ -1,4 +1,4 @@
-#include "Simulation/define.h"
+#include "../define.h"
 
 #define TTI_DURATION_NS 1000000L // 1ms = 1,000,000 nanoseconds
 
