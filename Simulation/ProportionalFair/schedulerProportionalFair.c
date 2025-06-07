@@ -2,7 +2,7 @@
 
 #define TTI_DURATION_NS 1000000L // 1ms = 1,000,000 nanoseconds
 #define MAX_TTI_WITHOUT_SCHED 40    // Maximum TTI without scheduling before UE is considered inactive
-#define T_pf 20                     // Time constant for Proportional Fair scheduling (in TTI)
+#define T_c 20                     // Time constant for Proportional Fair scheduling (in TTI)
 
 int TBS[MAX_MCS_INDEX][NUM_RB];
 
@@ -382,7 +382,7 @@ int main(int argc, char *argv[]) {
 }
 
 void ProportionalFair(UEData *ue_data, SchedulerResponse *response,
-                      float *avg_throughput, int *tti_since_last_sched) {
+                      float *R_k, int *tti_since_last_sched) {
     int scheduled = 0;
     int rb_per_ue = NUM_RB / MAX_UE_PER_TTI;
 
@@ -394,7 +394,7 @@ void ProportionalFair(UEData *ue_data, SchedulerResponse *response,
     }
 
     while (scheduled < MAX_UE_PER_TTI) {
-        float max_metric = -1.0;
+        float max_P_k = -1.0;
         int selected = -1;
 
         for (int i = 0; i < NUM_UE; i++) {
@@ -407,20 +407,17 @@ void ProportionalFair(UEData *ue_data, SchedulerResponse *response,
             int tb_size = TBS[mcs][rb_per_ue - 1];
             if (tb_size <= 0) continue;
 
-            float inst_throughput = (float)tb_size;
-            float metric;
+            float r_k = (float)tb_size;
+            float P_k;
 
-            // if (tti_since_last_sched[i] >= MAX_TTI_WITHOUT_SCHED) {
-            //     metric = 1e9;  
-            // } else 
-            if (avg_throughput[i] > 0.0) {
-                metric = inst_throughput / avg_throughput[i];
+            if (R_k[i] > 0.0) {
+                P_k = r_k / R_k[i];
             } else {
-                metric = inst_throughput;
+                P_k = r_k;
             }
 
-            if (metric > max_metric) {
-                max_metric = metric;
+            if (P_k > max_P_k) {
+                max_P_k = P_k;
                 selected = i;
             }
         }
@@ -434,7 +431,7 @@ void ProportionalFair(UEData *ue_data, SchedulerResponse *response,
         ue_data[selected].bsr -= tb_size;
         if (ue_data[selected].bsr < 0) ue_data[selected].bsr = 0;
 
-        avg_throughput[selected] = (1 - (float)1 / T_pf) * avg_throughput[selected] + (float)1 / T_pf * tb_size;
+        R_k[selected] = (1 - (float)1 / T_c) * R_k[selected] + (float)1 / T_c * tb_size;
 
         tti_since_last_sched[selected] = 0; 
         scheduled_ue[selected] = 1;
@@ -444,7 +441,7 @@ void ProportionalFair(UEData *ue_data, SchedulerResponse *response,
     for (int i = 0; i < NUM_UE; i++) {
         if (!scheduled_ue[i]) {
             tti_since_last_sched[i]++;
-            avg_throughput[i] = (1 - (float)1 / T_pf) * avg_throughput[i];  // Giảm trung bình theo thời gian
+            R_k[i] = (1 - (float)1 / T_c) * R_k[i];  // Giảm trung bình theo thời gian
         }
     }
 
