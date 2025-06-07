@@ -23,3 +23,5 @@ tempCodeRunnerFile.c
 !*.txt
 !*.ipynb
 
+# allow file Qlearning/model
+!*.bin
