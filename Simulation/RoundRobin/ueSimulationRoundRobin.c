@@ -223,10 +223,6 @@ int main(int argc, char *argv[]) {
                 } else {
                     LOG_OK("Semaphore for UE data posted successfully");
                 }
-                // printf("[Send] Start sent at TTI: %d\n", tti_now);
-                // for (int i = 0; i < MAX_UE; i++) {
-                //     printf("[Send] UE %d sent data: CQI=%d, BSR=%d\n", ue_data[i].id, ue_data[i].cqi, ue_data[i].bsr);
-                // }
                 if (sem_wait(sem_scheduler_recv) == -1) {
                     LOG_ERROR("Failed to wait for UE data semaphore");
                     return 1;
@@ -248,17 +244,9 @@ int main(int argc, char *argv[]) {
                 LOG_OK("Scheduler received response data successfully");
             }
 
-            // printf("[Receive] Start receive at TTI: %d\n", tti_now);
-            // for (int i = 0; i < MAX_UE; i++) {
-            //     printf("[Receive] UE %d receive data: TBSize=%d\n", response[i].id, response[i].tb_size);
-            // }
             for (int i = 0; i < MAX_UE; i++) {
                 update_data(&ue_data[i], response[i].tb_size);
             }
-            // printf("[Update] Scheduler updated UE data successfully\n");
-            // for (int i = 0; i < MAX_UE; i++) {
-            //     printf("[Update] UE %d after upgrade: CQI=%d, BSR=%d\n", ue_data[i].id, ue_data[i].cqi, ue_data[i].bsr);
-            // }
             if (sem_post(sem_ue_recv) == -1) {
                 LOG_ERROR("Failed to post semaphore for SchedulerResponse");
                 return 1;
@@ -355,12 +343,6 @@ void update_data(UEData* ue, int TBSize){
             TBSize: Size of the Transport Block.
     */
     ue->bsr = (ue->bsr > TBSize ? ue->bsr - TBSize : 0);
-    // ue->cqi = ue->cqi + rand()%3 - 1;
-    // if (ue->cqi < 0) {
-        // ue->cqi = 0;
-    // } else if (ue->cqi > 27) {
-        // ue->cqi = 27;
-    // }
 }
 
 void get_data_from_file(const char *cqi_filename, const char *bsr_filename, int tti, UEData *ue){
@@ -406,9 +388,6 @@ void get_data_from_file(const char *cqi_filename, const char *bsr_filename, int 
         }
         current_tti++;
     }
-    // for (int i = 0; i < MAX_UE; i++) {
-    //     printf("[In get data function] UE %d: CQI=%d, BSR=%d\n", ue[i].id, ue[i].cqi, ue[i].bsr);
-    // }
     fclose(cqi_file);
     fclose(bsr_file);
 }

@@ -1,18 +1,24 @@
 #include "../define.h"
 
-void update_data(UEData* ue, int TBSize);
-void get_data_from_file(const char *cqi_filename, const char *bsr_filename, int tti, UEData *ue);
+#define TTI_DURATION_NS 1000000L // 1ms = 1,000,000 nanoseconds
+
+void MaxCQI(UEData *ue_data, SchedulerResponse *response);
 
 int main(int argc, char *argv[]) {
-    if (argc != 3) {
-        fprintf(stderr, "Missing scenario file.\n");
+    if (argc < 2) {
+        LOG_ERROR("Missing scenario file.");
         return 1;
     }
-    const char* cqi_pathfile = argv[1];
-    const char* bsr_pathfile = argv[2];
-    // create shared memory for synchronization
+    const char *result_pathfile = argv[1];      // File path for logging results
+    int tti_now = 0, tti_last = 0;              // Current and last TTI
+    float avg_throughput[NUM_UE] = {0};         // Average throughput for each UE
+    int tti_since_last_sched[NUM_UE] = {0};     // TTI since last scheduling for each UE
+    // Define a timespec structure for nanosleep with a timeout of 400 microseconds
+    struct timespec req_timeout = {.tv_sec = 0, .tv_nsec = 400000}; 
+
+    // create shared memory
     int shm_sync = shm_open(
-        SHM_SYNC_TIME,      // name of the shared memory object 
+        SHM_SYNC_TIME,      // name of the shared memory object
         O_CREAT | O_RDWR,   // create and open the shared memory object
         0666                // permissions: read and write for all users
     );
@@ -24,8 +30,9 @@ int main(int argc, char *argv[]) {
     }
 
     // set the size of the shared memory object
-    if (ftruncate(shm_sync, sizeof(SyncTime)) == -1) {
-        LOG_ERROR("Failed to set size for shared memory");
+    ftruncate(shm_sync, sizeof(SyncTime)); // set the size of the shared memory object
+    if (shm_sync == -1) {
+        LOG_ERROR("Failed to set size for shared memory for sync");
         return 1;
     } else {
         LOG_OK("Size for sync shared memory set successfully");
@@ -33,8 +40,8 @@ int main(int argc, char *argv[]) {
 
     // map the shared memory object to the process's address space
     SyncTime* sync = mmap(
-        NULL,                   // address to start mapping 
-        sizeof(SyncTime),       // size of the shared memory object
+        NULL,                   // address to start mapping
+        sizeof(SyncTime),       // size of the shared memory object = ftruncate
         PROT_READ | PROT_WRITE, // permissions: read and write
         MAP_SHARED,             // shared memory mapping
         shm_sync,               // file descriptor of the shared memory object
@@ -49,7 +56,7 @@ int main(int argc, char *argv[]) {
 
     // create shared memory for UE data
     int shm_ue = shm_open(
-        SHM_CQI_BSR,        // name of the shared memory object 
+        SHM_CQI_BSR,        // name of the shared memory object
         O_CREAT | O_RDWR,   // create and open the shared memory object
         0666                // permissions: read and write for all users
     );
@@ -61,16 +68,17 @@ int main(int argc, char *argv[]) {
     }
 
     // set the size of the shared memory object
-    if (ftruncate(shm_ue, sizeof(UEData) * MAX_UE) == -1) {
+    ftruncate(shm_ue, sizeof(UEData) * MAX_UE);
+    if (shm_ue == -1) {
         LOG_ERROR("Failed to set size for shared memory");
         return 1;
     } else {
         LOG_OK("Size for UE data shared memory set successfully");
     }
-
+    
     // map the shared memory object to the process's address space
     UEData* ue_data = mmap(
-        NULL,                       // address to start mapping 
+        NULL,                       // address to start mapping
         sizeof(UEData) * MAX_UE,    // size of the shared memory object
         PROT_READ | PROT_WRITE,     // permissions: read and write
         MAP_SHARED,                 // shared memory mapping
@@ -98,21 +106,21 @@ int main(int argc, char *argv[]) {
     }
 
     // set the size of the shared memory object
-    if (ftruncate(shm_scheduler, sizeof(SchedulerResponse) * MAX_UE) == -1) {
+    ftruncate(shm_scheduler, sizeof(SchedulerResponse) * MAX_UE);
+    if (shm_scheduler == -1) {
         LOG_ERROR("Failed to set size for shared memory");
         return 1;
-    }   else {
+    } else {
         LOG_OK("Size for SchedulerResponse shared memory set successfully");
     }
-
     // map the shared memory object to the process's address space
     SchedulerResponse* response_data = mmap(
-        NULL,                               // address to start mapping 
-        sizeof(SchedulerResponse) * MAX_UE, // size of the shared memory object
-        PROT_READ | PROT_WRITE,             // permissions: read and write
-        MAP_SHARED,                         // shared memory mapping
-        shm_scheduler,                      // file descriptor of the shared memory object
-        0                                   // offset
+        NULL,                                   // address to start mapping
+        sizeof(SchedulerResponse) * MAX_UE,     // size of the shared memory object
+        PROT_READ | PROT_WRITE,                 // permissions: read and write
+        MAP_SHARED,                             // shared memory mapping
+        shm_scheduler,                          // file descriptor of the shared memory object
+        0                                       // offset
     );
     if (response_data == MAP_FAILED) {
         LOG_ERROR("Failed to mmap response_data");
@@ -174,10 +182,10 @@ int main(int argc, char *argv[]) {
     }
 
     sem_t* sem_sync = sem_open(
-        SEM_SYNC,   // name of the semaphore 
+        SEM_SYNC,   // name of the semaphore
         O_CREAT,    // create the semaphore if it doesn't exist
         0666,       // permissions: read and write for all users
-        0           // initial value of the semaphore
+        0           //initial value of the semaphore
     );
     if (sem_sync == SEM_FAILED) {
         LOG_ERROR("Failed to create semaphore for sync");
@@ -186,93 +194,111 @@ int main(int argc, char *argv[]) {
         LOG_OK("Semaphore for sync created successfully");
     }
 
-    // Buffer of response_data
-    SchedulerResponse *response = (SchedulerResponse*) malloc(NUM_UE*sizeof(SchedulerResponse));
-    if (response == NULL) {
+    // Buffer of ue_data
+    UEData *ue = (UEData*) malloc(NUM_UE*sizeof(UEData));
+    if (ue == NULL) {
         LOG_ERROR("Memory allocation failed\n");
         return 1;
     } else {
-        LOG_OK("Memory allocation for SchedulerResponse successful");
+        LOG_OK("Memory allocation for UE data successful");
+    }
+
+    // Load TBS table from CSV file
+    TBS_Table();
+
+    // Open the result file for logging
+    FILE *result_file = fopen(result_pathfile, "w");
+    if (result_file == NULL) {
+        LOG_ERROR("Error opening log file");
+        return 1;
+    } else {
+        LOG_OK("Log file opened successfully");
+    }
+    fprintf(result_file, "TTI");
+    for (int i = 0; i < NUM_UE; i++) {
+        fprintf(result_file, ",UE%d", i);
     }
 
     LOG_OK("Ready...");
-    sync->start_time_ms = get_current_tti_frame();
-    if (sem_post(sem_sync) == -1) {
-        LOG_ERROR("Failed to post sync semaphore");
+
+    // wait for sync semaphore to be posted by UE
+    if (sem_wait(sem_sync) == -1) {
+        LOG_ERROR("Failed to wait for sync semaphore");
         return 1;
     } else {
-        LOG_OK("Semaphore for sync posted successfully");
+        LOG_OK("Scheduler started successfully");
     }
-    int tti_now = 0, tti_last = 0;
+    LOG_INFO("Scheduler start sync time: %s\n", format_time_str(sync->start_time_ms));
+    
 
+    // Loop TTI
     while (tti_now < NUM_TTI) {
         tti_now = get_elapsed_tti_frame(sync->start_time_ms);
         if (tti_now > tti_last) {
+            // Check if the TTI is not skipping
             if (tti_now - tti_last != 1) {
                 LOG_ERROR("Scheduler cannot keep up with TTI");
                 LOG_ERROR("Scheduler TTI: %d, TTI last %d\n", tti_now, tti_last);
                 return -1;
             }
-
             LOG_INFO("Run TTI: %d\n", tti_now);
+            // If it's time to receive UE data
             if (tti_now % NUM_TTI_RESEND == 1) {
-                get_data_from_file(cqi_pathfile, bsr_pathfile, tti_now, ue_data);
-                if (sem_post(sem_ue_send) == -1) {
-                    LOG_ERROR("Failed to post semaphore for UE data");
-                    return 1;
-                } else {
-                    LOG_OK("Semaphore for UE data posted successfully");
-                }
-                // printf("[Send] Start sent at TTI: %d\n", tti_now);
-                // for (int i = 0; i < MAX_UE; i++) {
-                //     printf("[Send] UE %d sent data: CQI=%d, BSR=%d\n", ue_data[i].id, ue_data[i].cqi, ue_data[i].bsr);
-                // }
-                if (sem_wait(sem_scheduler_recv) == -1) {
+                // Wait for UE data semaphore
+                if (sem_wait(sem_ue_send) == -1) {
                     LOG_ERROR("Failed to wait for UE data semaphore");
                     return 1;
                 } else {
                     LOG_OK("Scheduler received UE data successfully");
                 }
-            }
-
-            if (sem_wait(sem_scheduler_send) == -1) {
-                LOG_ERROR("Failed to wait for UE data semaphore");
-                return 1;
-            } else {
+                // Copy data from shared memory to ue_data
+                if (memcpy(ue, ue_data, sizeof(UEData) * NUM_UE) == NULL) {
+                    LOG_ERROR("Failed to copy data from shared memory to ue_data");
+                    return 1;
+                } else {
+                    LOG_OK("Data copied from shared memory to ue_data successfully");
+                }
                 LOG_OK("Scheduler received UE data successfully");
+                if (sem_post(sem_scheduler_recv) == -1) {
+                    LOG_ERROR("Failed to post semaphore for UE data");
+                    return 1;
+                } else {
+                    LOG_OK("Semaphore for UE data posted successfully");
+                }
             }
-            if (memcpy(response, response_data, sizeof(SchedulerResponse) * MAX_UE) == NULL) {
-                LOG_ERROR("Failed to copy response data");
-                return 1;
-            } else {
-                LOG_OK("Scheduler received response data successfully");
-            }
+            
+            // Scheduler algorithm
+            MaxCQI(ue, response_data);
 
-            // printf("[Receive] Start receive at TTI: %d\n", tti_now);
-            // for (int i = 0; i < MAX_UE; i++) {
-            //     printf("[Receive] UE %d receive data: TBSize=%d\n", response[i].id, response[i].tb_size);
-            // }
-            for (int i = 0; i < MAX_UE; i++) {
-                update_data(&ue_data[i], response[i].tb_size);
-            }
-            // printf("[Update] Scheduler updated UE data successfully\n");
-            // for (int i = 0; i < MAX_UE; i++) {
-            //     printf("[Update] UE %d after upgrade: CQI=%d, BSR=%d\n", ue_data[i].id, ue_data[i].cqi, ue_data[i].bsr);
-            // }
-            if (sem_post(sem_ue_recv) == -1) {
+            LOG_OK("Scheduler processed UE data successfully");
+
+            // Post the response data to the shared memory
+            if (sem_post(sem_scheduler_send) == -1) {
                 LOG_ERROR("Failed to post semaphore for SchedulerResponse");
                 return 1;
             } else {
                 LOG_OK("Semaphore for SchedulerResponse posted successfully");
             }
-                
+
+            // Log the TB size for each UE at the current TTI
+            log_tbsize(result_file, tti_now, response_data, NUM_UE);
+
+            // Wait for the UE to receive the response data
+            if (sem_wait(sem_ue_recv) == -1) {
+                LOG_ERROR("Failed to wait for SchedulerResponse semaphore");
+                return 1;
+            } else {
+                LOG_OK("Scheduler received response data successfully");
+            }
+
             tti_last = tti_now;
         }
     }
 
-    //  free allocated memory
-    free(response);
-    response = NULL;
+    // Free allocated memory
+    free(ue);
+    ue = NULL;
+    // Unmap and close shared memory and semaphores
     if (munmap(ue_data, sizeof(UEData) * MAX_UE) == -1) {
         LOG_ERROR("Failed to unmap ue_data");
         return 1;
@@ -339,76 +365,52 @@ int main(int argc, char *argv[]) {
     } else {
         LOG_OK("Semaphore for sync closed successfully");
     }
-
+    
     return 0;
 }
 
-void update_data(UEData* ue, int TBSize){
-    /*
-        Function to update UE data.
-            UEData structure contains:
-                - id: UE ID
-                - cqi: Channel Quality Indicator
-                - bsr: Buffer Status Report
-        Parameters:
-            ue: Pointer to UEData structure to be updated.
-            TBSize: Size of the Transport Block.
-    */
-    ue->bsr = (ue->bsr > TBSize ? ue->bsr - TBSize : 0);
-    // ue->cqi = ue->cqi + rand()%3 - 1;
-    // if (ue->cqi < 0) {
-        // ue->cqi = 0;
-    // } else if (ue->cqi > 27) {
-        // ue->cqi = 27;
-    // }
-}
+void MaxCQI(UEData *ue_data, SchedulerResponse *response) {
+    int scheduled = 0;
+    int rb_per_ue = NUM_RB / MAX_UE_PER_TTI;
 
-void get_data_from_file(const char *cqi_filename, const char *bsr_filename, int tti, UEData *ue){
-    /*
-        Function to read data from files and update UE data.
-            UEData structure contains:
-                - id: UE ID
-                - cqi: Channel Quality Indicator
-                - bsr: Buffer Status Report
-        Parameters:
-            cqi_filename: Name of the file containing CQI data.
-            bsr_filename: Name of the file containing BSR data.
-            tti: TTI value to read data for.
-            ue: Pointer to UEData structure to be updated.
-    */
-    FILE *cqi_file = fopen(cqi_filename, "r");
-    FILE *bsr_file = fopen(bsr_filename, "r");
-    if (cqi_file == NULL || bsr_file == NULL) {
-        LOG_ERROR("Error opening file for reading");
-        return;
+    for (int i = 0; i < NUM_UE; i++) {
+        response[i].id = ue_data[i].id;
+        response[i].tb_size = 0;
     }
-    char line1[MAX_LINE_LENGTH],line2[MAX_LINE_LENGTH];
-    int current_tti  = 1;
-    int count_UE;
 
-    while (fgets(line1, sizeof(line1), cqi_file) && fgets(line2, sizeof(line2), bsr_file)) {
-        if (current_tti == tti + 1) {
-            char *token1 = strtok(line1, ",");
-            count_UE = 0;
-            while (token1 != NULL) {
-                ue[count_UE].id = count_UE + 1; 
-                ue[count_UE].cqi = atoi(token1); // Convert string to integer
-                count_UE++;
-                token1 = strtok(NULL, ",");
-            }
-            char *token2 = strtok(line2, ",");
-            count_UE = 0;
-            while (token2 != NULL) {
-                ue[count_UE].bsr += atoi(token2); // Convert string to integer
-                count_UE++;
-                token2 = strtok(NULL, ",");
+    int scheduled_ue[NUM_UE] = {0}; // Track scheduled UEs
+
+    while(scheduled < MAX_UE_PER_TTI) {
+        int max_cqi = -1;
+        int max_idx = -1;
+
+        for (int i = 0; i < NUM_UE; i++) {
+            if (!scheduled_ue[i] && ue_data[i].bsr > 0 && ue_data[i].cqi > max_cqi) {
+                max_cqi = ue_data[i].cqi;
+                max_idx = i;
             }
         }
-        current_tti++;
+
+        if (max_idx == -1) break; 
+
+        int mcs = cqi_to_mcs(max_cqi);
+        if (mcs < 0 || mcs >= MAX_MCS_INDEX) {
+            scheduled_ue[max_idx] = 1;
+            continue;
+        }
+
+        int tb_size = TBS[mcs][rb_per_ue - 1];
+        if (tb_size <= 0) {
+            // LOG_ERROR("[WARN] TBS lỗi tại MCS=%d\n", mcs);
+            scheduled_ue[max_idx] = 1;
+            continue;
+        }
+
+        response[max_idx].tb_size = tb_size;
+        ue_data[max_idx].bsr -= tb_size;
+        if (ue_data[max_idx].bsr < 0) ue_data[max_idx].bsr = 0;
+
+        scheduled_ue[max_idx] = 1;
+        scheduled++;
     }
-    // for (int i = 0; i < MAX_UE; i++) {
-    //     printf("[In get data function] UE %d: CQI=%d, BSR=%d\n", ue[i].id, ue[i].cqi, ue[i].bsr);
-    // }
-    fclose(cqi_file);
-    fclose(bsr_file);
 }
