@@ -206,6 +206,7 @@ int main(int argc, char *argv[]) {
     // Load TBS table from CSV file
     TBS_Table();
 
+    // Open the result file for logging
     FILE *result_file = fopen(result_pathfile, "w");
     if (result_file == NULL) {
         LOG_ERROR("Error opening log file");
@@ -220,6 +221,7 @@ int main(int argc, char *argv[]) {
 
     LOG_OK("Ready...");
 
+    // wait for sync semaphore to be posted by UE
     if (sem_wait(sem_sync) == -1) {
         LOG_ERROR("Failed to wait for sync semaphore");
         return 1;
@@ -233,13 +235,16 @@ int main(int argc, char *argv[]) {
     while (tti_now < NUM_TTI) {
         tti_now = get_elapsed_tti_frame(sync->start_time_ms);
         if (tti_now > tti_last) {
+            // Check if the TTI is not skipping
             if (tti_now - tti_last != 1) {
                 LOG_ERROR("Scheduler cannot keep up with TTI");
                 LOG_ERROR("Scheduler TTI: %d, TTI last %d\n", tti_now, tti_last);
                 return -1;
             }
             LOG_INFO("Run TTI: %d\n", tti_now);
+            // If it's time to receive UE data
             if (tti_now % NUM_TTI_RESEND == 1) {
+                // Wait for UE data semaphore
                 if (sem_wait(sem_ue_send) == -1) {
                     LOG_ERROR("Failed to wait for UE data semaphore");
                     return 1;
@@ -254,10 +259,6 @@ int main(int argc, char *argv[]) {
                     LOG_OK("Data copied from shared memory to ue_data successfully");
                 }
                 LOG_OK("Scheduler received UE data successfully");
-                // printf("[Receive] Scheduler received UE data successfully\n");
-                // for (int i = 0; i < NUM_UE; i++) {
-                //     printf("[Receive] UE sent data at TTI %d, ID: %d, CQI: %d, BSR: %d\n", tti_now, ue[i].id, ue[i].cqi, ue[i].bsr);
-                // }
                 if (sem_post(sem_scheduler_recv) == -1) {
                     LOG_ERROR("Failed to post semaphore for UE data");
                     return 1;
@@ -266,27 +267,23 @@ int main(int argc, char *argv[]) {
                 }
             }
             
+            // Scheduler algorithm
             MaxCQI(ue, response_data);
 
             LOG_OK("Scheduler processed UE data successfully");
 
+            // Post the response data to the shared memory
             if (sem_post(sem_scheduler_send) == -1) {
                 LOG_ERROR("Failed to post semaphore for SchedulerResponse");
                 return 1;
             } else {
                 LOG_OK("Semaphore for SchedulerResponse posted successfully");
-                // printf("[Send] Scheduler sent response data successfully\n");
-                // for (int i = 0; i < NUM_UE; i++) {
-                //     printf("[Send] TTI %d for UE %d sent data: TBSize=%d\n",tti_now, response_data[i].id, response_data[i].tb_size);
-                // }
             }
-            // printf("[Update] Scheduler updated UE data successfully\n");
-            // for (int i = 0; i < NUM_UE; i++) {
-            //     printf("[Updated] UE %d after upgrade: CQI=%d, BSR=%d\n", ue[i].id, ue[i].cqi, ue[i].bsr);
-            // }
 
+            // Log the TB size for each UE at the current TTI
             log_tbsize(result_file, tti_now, response_data, NUM_UE);
 
+            // Wait for the UE to receive the response data
             if (sem_wait(sem_ue_recv) == -1) {
                 LOG_ERROR("Failed to wait for SchedulerResponse semaphore");
                 return 1;
@@ -301,6 +298,7 @@ int main(int argc, char *argv[]) {
     // Free allocated memory
     free(ue);
     ue = NULL;
+    // Unmap and close shared memory and semaphores
     if (munmap(ue_data, sizeof(UEData) * MAX_UE) == -1) {
         LOG_ERROR("Failed to unmap ue_data");
         return 1;

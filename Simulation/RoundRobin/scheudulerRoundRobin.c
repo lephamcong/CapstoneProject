@@ -257,10 +257,6 @@ int main(int argc, char *argv[]) {
                     LOG_OK("Data copied from shared memory to ue_data successfully");
                 }
                 LOG_OK("Scheduler received UE data successfully");
-                // printf("[Receive] Scheduler received UE data successfully\n");
-                // for (int i = 0; i < NUM_UE; i++) {
-                //     printf("[Receive] UE sent data at TTI %d, ID: %d, CQI: %d, BSR: %d\n", tti_now, ue[i].id, ue[i].cqi, ue[i].bsr);
-                // }
                 if (sem_post(sem_scheduler_recv) == -1) {
                     LOG_ERROR("Failed to post semaphore for UE data");
                     return 1;
@@ -278,16 +274,7 @@ int main(int argc, char *argv[]) {
                 return 1;
             } else {
                 LOG_OK("Semaphore for SchedulerResponse posted successfully");
-                // printf("[Send] Scheduler sent response data successfully\n");
-                // for (int i = 0; i < NUM_UE; i++) {
-                //     printf("[Send] TTI %d for UE %d sent data: TBSize=%d\n",tti_now, response_data[i].id, response_data[i].tb_size);
-                // }
             }
-            // printf("[Update] Scheduler updated UE data successfully\n");
-            // for (int i = 0; i < NUM_UE; i++) {
-            //     printf("[Updated] UE %d after upgrade: CQI=%d, BSR=%d\n", ue[i].id, ue[i].cqi, ue[i].bsr);
-            // }
-
             log_tbsize(result_file, tti_now, response_data, NUM_UE);
 
             if (sem_wait(sem_ue_recv) == -1) {

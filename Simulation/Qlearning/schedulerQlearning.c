@@ -17,10 +17,11 @@ int main(int argc, char *argv[]) {
     }
     const char *result_pathfile = argv[1];
 
+    // Initialize replay buffer
     ReplayBuffer rb;
     init_replay_buffer(&rb, REPLAY_BUFFER_SIZE);
 
-// Biến phụ trợ
+    // variables for algorithm
     float epsilon = 1.0f;
     const float epsilon_min = 0.05f;
     const float decay_rate = 0.0005f;
@@ -29,7 +30,7 @@ int main(int argc, char *argv[]) {
 
     int tti_now = 0, tti_last = 0;
 
-    // Mạng DQN
+    // Initialize networks, load model if PROCESS is 1. Copy the network to target_net
     NeuralNet net, target_net;
     if (PROCESS == 1){
         if (!load_model("./model/dqn_model.bin", &net)) {
@@ -39,11 +40,6 @@ int main(int argc, char *argv[]) {
         epsilon = 0.25f; 
     }
     copy_network(&target_net, &net);
-
-    // Replay buffer
-
-    // Define a timespec structure for nanosleep with a timeout of 400 microseconds
-    struct timespec req_timeout = {.tv_sec = 0, .tv_nsec = 400000}; 
 
     // create shared memory
     int shm_sync = shm_open(
@@ -235,6 +231,7 @@ int main(int argc, char *argv[]) {
     // Load TBS table from CSV file
     TBS_Table();
 
+    // Open log file
     FILE *result_file = fopen(result_pathfile, "w");
     if (result_file == NULL) {
         LOG_ERROR("Error opening log file");
@@ -247,6 +244,7 @@ int main(int argc, char *argv[]) {
         fprintf(result_file, ",UE%d", i);
     }
 
+    // Open reward log file
     FILE *reward_log = NULL;
     if (PROCESS == 0) {
         reward_log = fopen("./result/reward_log_prev.csv", "w");
@@ -257,7 +255,7 @@ int main(int argc, char *argv[]) {
         LOG_ERROR("Không thể mở file reward_log.csv");
         exit(EXIT_FAILURE);
     }
-    fprintf(reward_log, "TTI,Reward,Epsilon\n"); // header
+    fprintf(reward_log, "TTI,Reward,Epsilon\n");
 
 
     LOG_OK("Ready...");
@@ -295,10 +293,6 @@ int main(int argc, char *argv[]) {
                     LOG_OK("Data copied from shared memory to ue_data successfully");
                 }
                 LOG_OK("Scheduler received UE data successfully");
-                // printf("[Receive] Scheduler received UE data successfully\n");
-                // for (int i = 0; i < NUM_UE; i++) {
-                //     printf("[Receive] UE sent data at TTI %d, ID: %d, CQI: %d, BSR: %d\n", tti_now, ue[i].id, ue[i].cqi, ue[i].bsr);
-                // }
                 if (sem_post(sem_scheduler_recv) == -1) {
                     LOG_ERROR("Failed to post semaphore for UE data");
                     return 1;
@@ -308,31 +302,24 @@ int main(int argc, char *argv[]) {
             }
 
 // ------------------------- Q Learning ---------------------------------
-            // 1. Chuẩn hóa trạng thái hiện tại
+            // Normalize state
             float state[INPUT_SIZE];
             for (int i = 0; i < NUM_UE; i++) {
-                state[i*3 + 0] = ue[i].cqi / 15.0f;                     
-                state[i*3 + 1] = fminf(ue[i].bsr, 18960) / 18960.0f; 
-                state[i*3 + 2] = fminf(delay[i], 20.0f) / 20.0f; 
+                state[i*3 + 0] = ue[i].cqi / 15.0f;                         // Max CQI = 15
+                state[i*3 + 1] = fminf(ue[i].bsr, 18960) / 18960.0f;        // Max BSR = 18960 bits (for mcs = 27 and 25 RBs)
+                state[i*3 + 2] = fminf(delay[i], 20.0f) / 20.0f;            // Set delay max = 20ms
             }
-            // printf("State: ");
-            // for (int i = 0; i < INPUT_SIZE; i++) {
-            //     printf("%.4f ", state[i]);
-            // }
-            // printf("\n");
 
-            // 2. Inference
+            // Forward network to get Q values
             float hidden[HIDDEN_SIZE], q_values[OUTPUT_SIZE];
             forward(&net, state, hidden, q_values);
 
-            // 3. Chọn hành động theo epsilon-greedy
+            // Choose action using epsilon-greedy policy
             int action_idx = epsilon_greedy_action(q_values, epsilon, ue);
-            // printf("Action index chosen: %d\n", action_idx);
             int selected_ue[4];
             index_to_ue_combination(action_idx, selected_ue);
 
-            // 4. Gán TBSize và tính throughput
-            // SchedulerResponse response_data[NUM_UE];
+            // Update response_data with selected UEs
             for (int i = 0; i < NUM_UE; i++) {
                 response_data[i].id = ue[i].id;
                 response_data[i].tb_size = 0;
@@ -342,39 +329,23 @@ int main(int argc, char *argv[]) {
                 int mcs = cqi_to_mcs(ue[idx].cqi);
                 response_data[idx].tb_size = TBS[mcs][NUM_RB_PER_UE - 1];
             }
-            // update delay, cumulative_tput, bsr
+            // Update BSR and delay
             for (int i = 0; i < NUM_UE; i++) {
                 if (response_data[i].tb_size > 0) {
                     delay[i] = 0; 
-                    // cumulative_tput[i] += response_data[i].tb_size;
                     ue[i].bsr -= response_data[i].tb_size;
                     if (ue[i].bsr < 0) {
                         ue[i].bsr = 0;
                     }
                 } else {
-                    delay[i] += SUBFRAME_DURATION; // tăng delay nếu không được cấp phát TBSize
+                    delay[i] += SUBFRAME_DURATION; 
                 }
             }
 
-            // 5. Tính phần thưởng
+            // Calculate reward
             float reward = compute_reward(response_data, cumulative_tput, NUM_UE, delay);
 
-            // print response_data, delay, cumulative_tput, ...
-            // printf("Response Data:\n");
-            // for (int i = 0; i < NUM_UE; i++) {
-            //     printf("UE %d: TBSize=%d, Delay=%d, Cumulative Tput=%d\n", 
-            //         response_data[i].id, response_data[i].tb_size, delay[i], cumulative_tput[i]);
-            // }
-            // printf("Reward: %.4f\n", reward);
-            // printf("Cumulative Throughput:\n");
-            // for (int i = 0; i < NUM_UE; i++) {
-            //     printf("UE %d: Cumulative Tput=%d\n", ue[i].id, cumulative_tput[i]);
-            // }
-            // printf("Delay:\n");
-            // for (int i = 0; i < NUM_UE; i++) {
-            //     printf("UE %d: Delay=%d\n", ue[i].id, delay[i]);
-            // }
-            // 6. Chuẩn hóa next_state
+            // Normalize next state
             float next_state[INPUT_SIZE];
             for (int i = 0; i < NUM_UE; i++) {
                 next_state[i*3 + 0] = ue[i].cqi / 15.0f;                     
@@ -382,7 +353,7 @@ int main(int argc, char *argv[]) {
                 next_state[i*3 + 2] = fminf(delay[i], 20.0f) / 20.0f; 
             }
 
-            // 7. Tạo và lưu transition
+            // Create transition and add to replay buffer
             Transition t;
             memcpy(t.state, state, sizeof(float) * INPUT_SIZE);
             t.action_index = action_idx;
@@ -391,7 +362,7 @@ int main(int argc, char *argv[]) {
             t.done = (tti_now == NUM_TTI);
             add_transition(&rb, t);
 
-            // 8. Huấn luyện nếu đủ dữ liệu
+            // Train the network
             Transition batch[BATCH_SIZE];
             if (sample_batch(&rb, batch, BATCH_SIZE)) {
                 train_once(&net, &target_net, batch, BATCH_SIZE, 0.99f); // γ = 0.99
@@ -400,19 +371,19 @@ int main(int argc, char *argv[]) {
                 }
             }
 
-            // 9. Giảm epsilon
-            // epsilon = fmaxf(epsilon_min, epsilon * expf(-decay_rate * tti_now));
+            // 9. Reduce epsilon
             if (PROCESS == 0){
                 if (tti_now < 3000) {
                     epsilon = 1.0f;
                 } else if (tti_now < 15000) {
                     float progress = (float)(tti_now - 3000) / 12000.0f;
-                    epsilon = 1.0f - 0.75f * progress;  // Giảm từ 1.0 → 0.25
+                    epsilon = 1.0f - 0.75f * progress;  // reduce 1.0 → 0.25
                 } else {
-                    epsilon = 0.25f;  // Giữ exploration 25%
+                    epsilon = 0.25f;  // keep epsilon at 0.25 after 15000 TTIs
                 }
             }
 
+            // Log the reward and epsilon
             fprintf(reward_log, "%d,%.4f,%.4f\n", tti_now, reward, epsilon);
             LOG_OK("Scheduler processed UE data successfully");
 
@@ -421,15 +392,7 @@ int main(int argc, char *argv[]) {
                 return 1;
             } else {
                 LOG_OK("Semaphore for SchedulerResponse posted successfully");
-                // printf("[Send] Scheduler sent response data successfully\n");
-                // for (int i = 0; i < NUM_UE; i++) {
-                //     printf("[Send] TTI %d for UE %d sent data: TBSize=%d\n",tti_now, response_data[i].id, response_data[i].tb_size);
-                // }
             }
-            // printf("[Update] Scheduler updated UE data successfully\n");
-            // for (int i = 0; i < NUM_UE; i++) {
-            //     printf("[Updated] UE %d after upgrade: CQI=%d, BSR=%d\n", ue[i].id, ue[i].cqi, ue[i].bsr);
-            // }
 
             log_tbsize(result_file, tti_now, response_data, NUM_UE);
 
@@ -466,24 +429,14 @@ int main(int argc, char *argv[]) {
         );
     }
 
+    // Save the model if PROCESS is train
     if (PROCESS == 0) {
         save_model("./model/dqn_model.bin", &net);
     }
 
-    // export_q_table("./result/q_table.csv", Q_table);
     // Free allocated memory
     free(ue);
     ue = NULL;
-    // free(state);
-    // state = NULL;
-    // free(state_next);
-    // state_next = NULL;
-    // free(reward);
-    // reward = NULL;
-    // free(Q_table);
-    // Q_table = NULL;
-    // fclose(reward_log);
-
 
     if (munmap(ue_data, sizeof(UEData) * MAX_UE) == -1) {
         LOG_ERROR("Failed to unmap ue_data");
