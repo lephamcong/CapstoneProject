@@ -22,6 +22,7 @@ tempCodeRunnerFile.c
 !*.gitignore
 !*.txt
 !*.ipynb
+!*.png
 
 # allow file Qlearning/model
 !*.bin
