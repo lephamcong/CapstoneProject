@@ -7,7 +7,7 @@ NUM_UE = 12
 
 def write_dual_scenario(base_name, cqi_matrix, bsr_matrix):
     with open(f'cqi_{base_name}.csv', 'w', newline='') as cqi_file, \
-         open(f'bsr_{base_name}.csv', 'w', newline='') as bsr_file:
+        open(f'bsr_{base_name}.csv', 'w', newline='') as bsr_file:
 
         cqi_writer = csv.writer(cqi_file)
         bsr_writer = csv.writer(bsr_file)
@@ -26,20 +26,20 @@ def random_cqi(min_val=1, max_val=15):
 def random_bsr(min_val=1000, max_val=10000):
     return [[random.randint(min_val, max_val) for _ in range(NUM_TTI)] for _ in range(NUM_UE)]
 
-def scenario_idal_condition_bsr100000():
+def scenario_ideal_condition_bsr100000():
     cqi = []
     for ue in range(NUM_UE):
         if ue < 4:
-            row = [random.randint(11, 15) for _ in range(NUM_TTI)]  # nhóm tốt
+            row = [random.randint(11, 15) for _ in range(NUM_TTI)]  # good group
         elif ue < 8:
-            row = [random.randint(6, 10) for _ in range(NUM_TTI)]   # nhóm trung bình
+            row = [random.randint(6, 10) for _ in range(NUM_TTI)]   # medium group
         else:
-            row = [random.randint(1, 5) for _ in range(NUM_TTI)]    # nhóm xấu
+            row = [random.randint(1, 5) for _ in range(NUM_TTI)]    # bad group
         cqi.append(row)
 
-    bsr = random_bsr(90000,100000)  # traffic raast cao
+    bsr = random_bsr(90000,100000)  # very high BSR values
     return cqi, bsr
 
 
 random.seed(42) 
-write_dual_scenario("ideal_condition_bsr100000", *scenario_idal_condition_bsr100000())
+write_dual_scenario("ideal_condition_bsr100000", *scenario_ideal_condition_bsr100000())

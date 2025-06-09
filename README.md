@@ -18,8 +18,8 @@
 ## Information
 
 ### Students: 
-- **Le Pham Cong** 
-- **Huynh Nhat Anh**  
+- **Le Pham Cong** : **106200221@sv1.dut.udn.vn**
+- **Huynh Nhat Anh** : **106200252@sv1.dut.udn.vn** 
 
 ### Supervisors:
 - **PhD. Van Phu Tuan** — Faculty of Electronics and Telecommunication Engineering, University of Science and Technology, University of Danang (DUT)
@@ -34,9 +34,6 @@
 - [Run](#run)
 - [Folder Structure](#folder-structure)
 - [Result](#result)
-- [Author](#author)
-- [References](#references)
-- [Appendix](#appendix)
 
 
 ## Description
@@ -56,31 +53,76 @@ The simulation computes and compares key performance indicators (KPIs) such as:
 ## Requirements
 * **Language:** C
 * **Compiler:** GCC
-* **Operating System:** POSIX-compiant OS (Linux)
+* **Operating System:** Ubuntu 22.04 LTS
 * **Requirements:**
     * POSIX shared memory
     * POSIX semaphores
-## Run
+## Implement Simulation
 ### Generate Data
+The script gen_cqi_table.py generates synthetic CQI (Channel Quality Indicator) and BSR (Buffer Status Report) datasets to simulate uplink transmission conditions for multiple UEs over time.
+
+**Scenario: ideal_condition_bsr100000**
+
+**CQI Distribution:**
+
+- UE0 – UE3: High channel quality (CQI 11–15) — good group
+
+- UE4 – UE7: Medium channel quality (CQI 6–10) — average group
+
+- UE8 – UE11: Low channel quality (CQI 1–5) — poor group
+
+**BSR Values:**
+
+- Generated uniformly within [90,000, 100,000] bits for all UEs
+
+
+**Output:** Two CSV files are created in the current directory:
+
+- cqi_ideal_condition_bsr100000.csv
+
+- bsr_ideal_condition_bsr100000.csv
+
+Each file contains 20,000 rows (1 per TTI) × 12 columns (1 per UE), making it ideal for evaluating fairness, throughput, and delay handling across diverse link qualities and traffic loads.
 ```bash
 cd Simulation/
 cd data/
 python3 ./gen_cqi_table.py
 ```
-### Run each algorithm
+
+
+### Run each algorithm (Using 2 terminals)
+
+To run a scheduling algorithm, open **2 separate terminals**:
+
+#### Terminal 1 – Run the Scheduler
+
 ```bash
-cd Simulation/
-cd ProportionalFair/
-
-# Compile
-gcc -o scheduler schedulerProportionalFair.c -lm
-gcc -o ue_simulation ueSimulationProportionalFair.c
-
-# Run with 2 process
+cd Simulation/ProportionalFair/
 ./scheduler "./ProportionalFair_Result.csv"
+```
+
+#### Terminal 2 – Run the UE Simulation
+
+```bash
+cd Simulation/ProportionalFair/
 ./ue_simulation "./cqiData.csv" "./bsrData.csv"
 ```
-To run other algorithm, replace ProportionalFair with MaxC_I, Qlearning or RoundRobin
+
+**Note:**
+
+* You must start the **scheduler** first so that shared memory and synchronization semaphores are properly initialized.
+* Make sure the `.csv` files are available in the correct directory or provide correct relative paths.
+* If you encounter errors related to file/folder paths, please adjust accordingly to your system.
+
+
+To run other algorithms, replace `ProportionalFair` with one of:
+
+* `MaxC_I`
+* `QLearning`
+* `RoundRobin`
+
+Each folder contains its own `scheduler` and `ue_simulation` source files.
+
 
 ## Folder Structure
 ```bash
@@ -146,6 +188,25 @@ CAPSTONEPROJECT/
 ├── .gitignore
 └── readme.md
 ```
+
+| Folder / File                      | Description                                                                      |
+| ---------------------------------- | -------------------------------------------------------------------------------- |
+| `Simulation/`                      | Main directory for simulation code and result output                             |
+| ├─ `data/`                         | Contains scripts and generated datasets (`CQI`, `BSR`) for testing scenarios     |
+| ├─ `MaxC_I/`                       | Source code and data for **Max C/I** scheduling algorithm                        |
+| ├─ `ProportionalFair/`             | Source code and data for **Proportional Fair** scheduling                        |
+| ├─ `QLearning/`                    | Code and model files for **Deep Q-Learning** scheduling algorithm                |
+| ├─ `RoundRobin/`                   | Code for classic **Round Robin** scheduling                                      |
+| ├─ `result/`                       | Contains CSV outputs and Jupyter notebooks for result visualization and analysis |
+| ├─ `define.h`, `clean.c`           | Shared definitions and utilities for memory/semaphore cleanup                    |
+| └─ `TBSArray.csv`                  | Transport Block Size mapping file used across schedulers                         |
+| `TBS/`                             | References and tools to calculate TBS from 3GPP specs                            |
+| ├─ `TBS_calculate.c`, `TBSArray.c` | Code to generate TBS tables from spec                                            |
+| ├─ `MCSIndexTable*.csv`            | Modulation and Coding Scheme index tables                                        |
+| └─ `3gpp341-g40.pdf`               | Official 3GPP document used for reference                                        |
+| `.gitignore`                       | Git file ignore list                                                             |
+| `readme.md`                        | Project documentation and usage instructions                                     |
+
 ## Result
 <p align="center">
   <img src="Simulation/result/each_ue.png" alt="Fig 1. Statistical chart by criteria for each user" width="600"/>
@@ -158,6 +219,6 @@ Fig 1. Statistical chart by criteria for each user
 Fig 2. Statistics chart of cell throughput and fairness
 
 
-## References
+
 
 <!-- ABOUT THE PROJECT -->

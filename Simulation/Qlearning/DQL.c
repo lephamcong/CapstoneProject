@@ -6,7 +6,7 @@
 #define OUTPUT_SIZE 495
 #define LEARNING_RATE 0.001
 
-// Proocess = 1: test, Process = 2: train
+// Proocess = 1: test, Process = 0: train
 #if PROCESS == 1
 #define REPLAY_BUFFER_SIZE 10000
 #else 
