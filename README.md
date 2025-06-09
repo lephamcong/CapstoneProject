@@ -31,7 +31,7 @@
 
 - [Description](#description)
 - [Requirements](#requirements)
-- [Run](#run)
+- [Implement Simulation](#Implement Simulation)
 - [Folder Structure](#folder-structure)
 - [Result](#result)
 
