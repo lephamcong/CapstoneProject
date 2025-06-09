@@ -31,7 +31,7 @@
 
 - [Description](#description)
 - [Requirements](#requirements)
-- [Implement Simulation](#Implement Simulation)
+- [Implement Simulation](#Implement)
 - [Folder Structure](#folder-structure)
 - [Result](#result)
 
@@ -57,7 +57,7 @@ The simulation computes and compares key performance indicators (KPIs) such as:
 * **Requirements:**
     * POSIX shared memory
     * POSIX semaphores
-## Implement Simulation
+## Implement
 ### Generate Data
 The script gen_cqi_table.py generates synthetic CQI (Channel Quality Indicator) and BSR (Buffer Status Report) datasets to simulate uplink transmission conditions for multiple UEs over time.
 
